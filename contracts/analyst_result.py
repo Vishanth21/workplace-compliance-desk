@@ -1,6 +1,6 @@
 """The Analyst -> Verifier hand-off.
 
-Serialisable in full: logged, persisted, passed between agents (A2). The
+Serialisable in full: logged, persisted, passed between agents. The
 Verifier reads ``retrieved_chunks`` from here.
 """
 
@@ -57,7 +57,7 @@ class Claim(BaseModel):
 
 
 class LoopStats(BaseModel):
-    """Loop bounds (A1)."""
+    """Loop bounds."""
 
     steps: int = 0
     tool_calls: int = 0
@@ -72,12 +72,12 @@ class AnalystResult(BaseModel):
     claims: list[Claim] = Field(default_factory=list)
     retrieved_chunks: list[Chunk] = Field(default_factory=list)
     loop: LoopStats = Field(default_factory=LoopStats)
-    prompt_version: str = Field(description="L2: which prompt produced this.")
-    correlation_id: str = Field(description="D5: ties every step of the run together.")
+    prompt_version: str = Field(description="Which prompt version produced this.")
+    correlation_id: str = Field(description="Ties every step of the run together.")
 
 
 class VerificationOutcome(BaseModel):
-    """Agent 2's verdict (A3)."""
+    """Verification verdict."""
 
     passed: bool
     final_route: Route

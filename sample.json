@@ -1,0 +1,10 @@
+{
+  "question": "An employee engaged after 21 November 2025 on a written fixed-term contract of 18 months has completed the contract. Is gratuity payable?",
+  "establishment": {
+    "headcount": 50,
+    "industry": "Information Technology",
+    "state": "Karnataka",
+    "has_fixed_term_employees": true
+  },
+  "requested_by": "HR Operations"
+}

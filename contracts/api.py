@@ -1,4 +1,4 @@
-"""REST data contract for the external interface (F1, D1, A4).
+"""REST data contract for the external interface.
 
 POST a question, receive a run id, poll for the result.
 """
@@ -19,7 +19,7 @@ class Establishment(BaseModel):
 
 
 class RunRequest(BaseModel):
-    """Inbound compliance question (D1)."""
+    """Inbound compliance question."""
 
     question: str = Field(min_length=1, max_length=2000)
     establishment: Establishment
@@ -56,7 +56,7 @@ class RunView(BaseModel):
 
 
 class FieldError(BaseModel):
-    """Field-level rejection detail (D1)."""
+    """Field-level rejection detail."""
 
     field: str
     code: str
@@ -64,7 +64,7 @@ class FieldError(BaseModel):
 
 
 class RejectionResponse(BaseModel):
-    """400 body for a request that never started a run (F2)."""
+    """400 body for a request that never started a run."""
 
     status: RunStatus = RunStatus.QUARANTINED
     correlation_id: str

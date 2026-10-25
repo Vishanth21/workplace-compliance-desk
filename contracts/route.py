@@ -4,7 +4,7 @@ from enum import StrEnum
 
 
 class Route(StrEnum):
-    """The three permitted outcomes of a compliance query (F6)."""
+    """The three permitted outcomes of a compliance query."""
 
     ANSWER = "answer-with-citation"
     MORE_DETAIL = "request-more-detail"
@@ -12,7 +12,7 @@ class Route(StrEnum):
 
 
 class RunStatus(StrEnum):
-    """Lifecycle of an asynchronous run (A4)."""
+    """Lifecycle of an asynchronous run."""
 
     QUEUED = "queued"
     RUNNING = "running"

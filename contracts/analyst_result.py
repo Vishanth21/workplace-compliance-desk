@@ -19,7 +19,9 @@ class ProvisionStatus(StrEnum):
     REPEALED = "repealed"
 
 
-_PART_RE = re.compile(r"main|proviso_[1-9]\d*|explanation|definition")
+_PART_RE = re.compile(
+    r"main|proviso_[1-9]\d*|explanation(_[1-9]\d*)?|definition"
+)
 
 
 class Chunk(BaseModel):

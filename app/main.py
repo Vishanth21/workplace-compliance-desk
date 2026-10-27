@@ -4,11 +4,13 @@ Features:
 - REST interface against published data contract
 - Ingestion validation, field-level rejection, quarantine
 - Asynchronous submit & poll pattern
+- Bounded process-local queue with fixed worker pool (A4)
+- Two-agent execution: Analyst -> Verifier (A2, A3)
 """
 
-import asyncio
 import uuid
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -23,13 +25,31 @@ from contracts import (
     RunView,
 )
 
-from .pipeline_stub import run_pipeline
+from .queue import (
+    WORKER_COUNT,
+    get_queue_depth,
+    run_correlations,
+    run_queue,
+    run_requests,
+    start_workers,
+    stop_workers,
+)
 from .store import metrics_counters, quarantined_records, runs
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application lifecycle and worker pool."""
+    start_workers(WORKER_COUNT)
+    yield
+    await stop_workers()
+
 
 app = FastAPI(
     title="Workplace Compliance Advisory Desk",
     description="Multi-agent compliance advisory API for labour statutes and codes",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -81,7 +101,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics() -> str:
-    """Minimal plaintext metrics stub."""
+    """Plaintext metrics endpoint with run counters, queue depth, and worker count."""
     return (
         "# HELP compliance_runs_total Total compliance runs initiated.\n"
         "# TYPE compliance_runs_total counter\n"
@@ -95,6 +115,12 @@ async def metrics() -> str:
         "# HELP compliance_runs_failed_total Total failed runs.\n"
         "# TYPE compliance_runs_failed_total counter\n"
         f"compliance_runs_failed_total {metrics_counters['failed']}\n"
+        "# HELP compliance_queue_depth Current number of runs waiting in queue.\n"
+        "# TYPE compliance_queue_depth gauge\n"
+        f"compliance_queue_depth {get_queue_depth()}\n"
+        "# HELP compliance_workers_total Number of active background queue workers.\n"
+        "# TYPE compliance_workers_total gauge\n"
+        f"compliance_workers_total {WORKER_COUNT}\n"
     )
 
 
@@ -107,12 +133,13 @@ async def submit_run(run_request: RunRequest) -> RunAccepted:
     """Async submit endpoint.
 
     Validates request, assigns run identifier and correlation identifier,
-    initializes status to QUEUED, and returns 202 immediately.
+    initializes status to QUEUED in status store, and places run id onto queue.
+    Returns 202 immediately.
     """
     run_id = str(uuid.uuid4())
     correlation_id = str(uuid.uuid4())
 
-    # Initialize queued run view
+    # Initialize queued run view in status store
     run_view = RunView(
         run_id=run_id,
         status=RunStatus.QUEUED,
@@ -123,10 +150,15 @@ async def submit_run(run_request: RunRequest) -> RunAccepted:
         error=None,
     )
     runs[run_id] = run_view
+    run_requests[run_id] = run_request
+    run_correlations[run_id] = correlation_id
     metrics_counters["total_requests"] += 1
 
-    # Launch async task runner
-    asyncio.create_task(run_pipeline(run_id, run_request))
+    # Ensure queue worker pool is active
+    start_workers(WORKER_COUNT)
+
+    # Queue carries ids, not state
+    await run_queue.put(run_id)
 
     return RunAccepted(
         run_id=run_id,

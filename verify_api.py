@@ -84,7 +84,8 @@ def run_checks():
     print(r5.text)
     assert r5.status_code == 200
     assert "compliance_runs_total" in r5.text
-    print("PASS: Metrics endpoint verified")
+    assert "compliance_queue_depth" in r5.text
+    print("PASS: Metrics endpoint verified with queue depth")
 
     print("\n==========================================")
     print("ALL API VERIFICATION CHECKS PASSED!")

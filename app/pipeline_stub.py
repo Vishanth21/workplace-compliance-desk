@@ -1,6 +1,6 @@
 """Pipeline executing Analyst -> Verifier -> RunView.
 
-Replaces the hardcoded Day 2 pipeline stub with a two-agent workflow:
+Runs the two-agent workflow:
 1. Analyst (Agent 1) produces draft answer, claims, and retrieved chunks.
 2. Verifier (Agent 2) resolves citations and verifies claims against statutory text.
 3. Maps VerificationOutcome to RunView, ensuring unverified answers are never returned.
@@ -23,8 +23,9 @@ from .analyst import AnalystProtocol, StubAnalyst
 from .queue import run_correlations
 from .store import metrics_counters, runs
 
-# Default agent instances
-# When Person A delivers the real Analyst, swap this single constructor call:
+# Default agent instances.
+# Swap the analyst for a real implementation once one exists; every caller
+# reads this module-level binding, so this single line is the seam.
 analyst: AnalystProtocol = StubAnalyst()
 verifier: VerifierProtocol = Verifier()
 
@@ -99,7 +100,7 @@ async def run_pipeline(
         run_view.error = None
         metrics_counters["succeeded"] += 1
     else:
-        # Verification failed: Escalate to legal-counsel-review before Day 7
+        # Verification failed: escalate to legal-counsel-review.
         # "passed=False must never produce answer-with-citation."
         # "An unverified answer must not be returned."
         run_view.status = RunStatus.SUCCEEDED

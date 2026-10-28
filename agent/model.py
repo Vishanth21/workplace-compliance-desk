@@ -44,9 +44,8 @@ class ModelError(RuntimeError):
     """A model call failed in a way the caller cannot fix by retrying.
 
     Missing credentials, unknown provider, an unparseable structured response.
-    Retryable failures (rate limits, timeouts) are expected to be handled by the
-    caller -- Day 7's circuit breaker -- so they are raised as this same type
-    only after that layer gives up.
+    Retryable failures (rate limits, timeouts) are the caller's to handle: it
+    retries, and raises this type only once it gives up.
     """
 
 

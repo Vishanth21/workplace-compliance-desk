@@ -149,8 +149,6 @@ def corpus_search(
     if section is not None:
         candidates = [c for c in candidates if c.section == section]
 
-    q_lower = query.lower()
-
     # Prioritize general section clauses, repealed law if applicable, and proviso 1
     # Keeps proviso_2 and proviso_6 outside top 5 for the flagship query
     def rank_score(chunk: Chunk) -> int:

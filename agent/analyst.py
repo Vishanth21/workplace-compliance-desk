@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from contracts import AnalystResult, Chunk, Claim, LoopStats, Route
 
-from .model import Message, Model, get_model
+from .model import Message, Model, ScriptedModel, get_model
 from .tools import TOOL_NAMES, dispatch, schemas
 
 #: Bump when a prompt change alters output, so regressions trace to a revision.
@@ -372,3 +372,107 @@ def analyse(
     }
     final = app.invoke(initial)
     return final["result"]
+
+
+#: The §4.1 flagship question: fixed-term employment, under five years.
+FLAGSHIP_QUESTION = (
+    "We hired someone on a six-month fixed-term contract and renewed it for "
+    "another six months. They have now completed 18 months and left. Do we owe "
+    "them gratuity, given they served under five years?"
+)
+
+#: The §4.1 flagship transcript replayed by ``--scripted``.
+#:
+#: Step 1 searches and meets the five-year rule in the main clause. Step 2 is
+#: the case the whole day turns on: having read the main clause, the model
+#: derives a *second* query and reaches for the section's provisos by number
+#: instead of re-running the same search. Step 3 answers citing the proviso
+#: that removes the threshold for fixed-term employment.
+FLAGSHIP_SCRIPT = [
+    Step(
+        action=Action.TOOL,
+        tool="corpus_search",
+        arguments={"query": "gratuity fixed term"},
+        reasoning="Find the provision governing gratuity.",
+    ),
+    Step(
+        action=Action.TOOL,
+        tool="lookup_clause",
+        arguments={"doc": "css2020", "section": "53"},
+        reasoning=(
+            "The main clause sets a five-year threshold. Fixed-term employment "
+            "is carved out by a proviso, so read section 53's provisos."
+        ),
+    ),
+    Step(
+        action=Action.ANSWER,
+        reasoning="The provisos answer it directly.",
+        answer=(
+            "Yes. Under the second proviso to section 53 of the Code on Social "
+            "Security, 2020, an employee on fixed-term employment is paid "
+            "gratuity on a pro-rata basis, and the five-year continuous-service "
+            "threshold does not apply where the employment ends on expiry of "
+            "the fixed term."
+        ),
+        citations=["css2020-s53-proviso_2", "css2020-s53-proviso_6"],
+    ),
+]
+
+
+def _scripted_result() -> tuple[AnalystResult, list[str]]:
+    """Run the flagship case against a scripted model: no network, no key.
+
+    Returns the hand-off and the names of the tools the agent chose to call,
+    in order. The tool names are read back from the *transcript* the model
+    received, so the gate proves what actually ran rather than trusting the
+    script it was handed.
+    """
+    model = ScriptedModel(list(FLAGSHIP_SCRIPT))
+    result = analyse(
+        FLAGSHIP_QUESTION,
+        {"question": FLAGSHIP_QUESTION},
+        model=model,
+    )
+
+    # The last prompt the model saw carries the whole tool transcript.
+    transcript = model.calls[-1] if model.calls else []
+    tools_used = [
+        call["function"]["name"]
+        for msg in transcript
+        for call in (msg.get("tool_calls") or [])
+    ]
+    return result, tools_used
+
+
+def _run_scripted() -> int:
+    """Run the flagship case and assert the checks, printing PASS/FAIL per check."""
+    result, tools_used = _scripted_result()
+    print(result.model_dump_json(indent=2))
+
+    retrieved = {c.chunk_id for c in result.retrieved_chunks}
+    cited = {cid for claim in result.claims for cid in claim.citations}
+
+    checks = {
+        "agent runs at all (route=answer)": result.route == Route.ANSWER,
+        "chose a second query (tool_calls >= 2)": result.loop.tool_calls >= 2,
+        # ``tool_calls`` alone would pass on two corpus searches; A1 requires
+        # the agent to reach for a clause it did not know at the start.
+        "lookup_clause among the calls": "lookup_clause" in tools_used,
+        "proviso retrieved": "css2020-s53-proviso_6" in retrieved,
+        "proviso cited": "css2020-s53-proviso_6" in cited,
+        "loop is bounded": result.loop.steps <= DEFAULT_MAX_STEPS,
+    }
+
+    print("\n--- gate (analyst --scripted) ---", file=sys.stderr)
+    for label, ok in checks.items():
+        print(f"{'PASS' if ok else 'FAIL'}  {label}", file=sys.stderr)
+    return 0 if all(checks.values()) else 1
+
+
+if __name__ == "__main__":
+    import sys
+
+    if "--scripted" in sys.argv:
+        raise SystemExit(_run_scripted())
+    print("usage: python -m agent.analyst --scripted", file=sys.stderr)
+    raise SystemExit(2)

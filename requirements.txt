@@ -1,0 +1,13 @@
+# Runtime dependencies for the API and agent, for pip users who would rather
+# not install uv. uv users should run `uv sync` instead -- pyproject.toml is the
+# single source of truth, and this file mirrors its runtime dependencies.
+#
+# The retrieval stack (chromadb, sentence-transformers, torch) is not listed:
+# index/retrieve.py carries its corpus in-process and imports only contracts,
+# so the service runs without it. Install the retrieval stack from
+# pyproject.toml when working on real index building.
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+httpx>=0.27.0
+langgraph>=1.2.0

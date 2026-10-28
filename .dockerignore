@@ -1,0 +1,10 @@
+.venv/
+.uv-cache/
+.uv-verify/
+.git/
+.review/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+docs/
+index/store/

@@ -1,12 +1,38 @@
 [project]
 name = "miniproject"
 version = "0.1.0"
+description = "Workplace compliance desk: answers Indian labour-law questions from a statute corpus, and refuses to return any answer it cannot verify."
 requires-python = ">=3.13,<3.15"
 dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+    "httpx>=0.27.0",
+    "langgraph>=1.2.0",
     "chromadb>=1.5.9",
     "sentence-transformers>=6.2.0",
     "torch>=2.14.1",
 ]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# This is a flat-layout application, not a distributable library. Declaring the
+# packages explicitly stops setuptools' auto-discovery from failing on the
+# several top-level packages (and from trying to ship `corpus/`).
+packages = ["app", "agent", "contracts", "index"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.uv]
+# Resolve against the declared Python range, not the interpreter running uv.
+default-groups = ["dev"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -15,3 +41,9 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pytest-asyncio warns if this is unset; "function" is the scope the suite
+# already gets, so pin it before the default changes.
+asyncio_default_fixture_loop_scope = "function"

@@ -4,3 +4,10 @@ __pycache__/
 .env
 *.faiss
 .pytest_cache/
+
+# uv local state (uv.lock itself is tracked)
+.uv-cache/
+.uv-verify/
+
+# generated Chroma database
+index/store/

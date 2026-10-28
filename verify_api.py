@@ -49,8 +49,8 @@ def run_checks():
             print(f"Advisory: {data3.get('answer')}")
             print(f"Citations: {data3.get('citations')}")
             assert data3["route"] == "answer-with-citation"
-            assert len(data3["citations"]) == 1
-            assert data3["citations"][0]["chunk_id"] == "css2020-s53-1-prov-2"
+            cited3 = {c["chunk_id"] for c in data3["citations"]}
+            assert cited3 == {"css2020-s53-proviso_2", "css2020-s53-proviso_6"}
             break
         time.sleep(0.5)
 

@@ -165,9 +165,9 @@ async def test_async_pipeline_execution_and_poll():
         assert poll_data_2["status"] == RunStatus.SUCCEEDED
         assert poll_data_2["route"] == Route.ANSWER
         assert poll_data_2["answer"] is not None
-        assert "Section 53(1)" in poll_data_2["answer"]
-        assert len(poll_data_2["citations"]) == 1
-        assert poll_data_2["citations"][0]["chunk_id"] == "css2020-s53-1-prov-2"
+        assert "section 53" in poll_data_2["answer"]
+        cited = {c["chunk_id"] for c in poll_data_2["citations"]}
+        assert cited == {"css2020-s53-proviso_2", "css2020-s53-proviso_6"}
         assert poll_data_2["verification"]["passed"] is True
 
 
@@ -189,7 +189,7 @@ async def test_api_never_leaks_unverified_answer_on_fabricated_citation():
     class FabricatingAnalyst:
         async def analyze(self, request: RunRequest, correlation_id: str) -> AnalystResult:
             chunk = Chunk(
-                chunk_id="css2020-s53-1-prov-2",
+                chunk_id="css2020-s53-proviso_2",
                 doc="css2020",
                 section="53(1)",
                 part="proviso_2",

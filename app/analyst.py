@@ -38,11 +38,14 @@ class StubAnalyst:
         self.prompt_version = prompt_version
 
     async def analyze(self, request: RunRequest, correlation_id: str) -> AnalystResult:
-        # Flagship provision: Section 53(1) second proviso of Code on Social Security, 2020
-        chunk = Chunk(
-            chunk_id="css2020-s53-1-prov-2",
+        # Flagship provisions: section 53 of the Code on Social Security, 2020.
+        # Two provisos are load-bearing: the second makes fixed-term employment
+        # gratuity-eligible on a pro-rata basis, and the sixth removes the
+        # five-year continuous-service threshold when the term expires.
+        pro_rata = Chunk(
+            chunk_id="css2020-s53-proviso_2",
             doc="css2020",
-            section="53(1)",
+            section="53",
             part="proviso_2",
             status=ProvisionStatus.IN_FORCE,
             text=(
@@ -51,32 +54,47 @@ class StubAnalyst:
                 "gratuity on pro rata basis."
             ),
         )
+        threshold = Chunk(
+            chunk_id="css2020-s53-proviso_6",
+            doc="css2020",
+            section="53",
+            part="proviso_6",
+            status=ProvisionStatus.IN_FORCE,
+            text=(
+                "Provided also that continuous service of five years shall not be "
+                "necessary if employment ends on expiry of fixed term employment."
+            ),
+        )
 
         claims = [
             Claim(
                 text=(
-                    "Under Section 53(1), second proviso of the Code on Social Security, 2020, "
-                    "the five-year continuous service threshold does not apply to employees engaged on "
-                    "fixed-term contracts."
+                    "Under the sixth proviso to section 53 of the Code on Social "
+                    "Security, 2020, five years' continuous service is not necessary "
+                    "where the employment ends on expiry of a fixed term."
                 ),
-                citations=["css2020-s53-1-prov-2"],
+                citations=["css2020-s53-proviso_6"],
             ),
             Claim(
-                text="Gratuity is payable on a pro-rata basis upon the completion of the 18-month fixed-term contract.",
-                citations=["css2020-s53-1-prov-2"],
+                text=(
+                    "Under the second proviso to section 53, an employee on fixed-term "
+                    "employment is paid gratuity on a pro-rata basis."
+                ),
+                citations=["css2020-s53-proviso_2"],
             ),
         ]
 
         return AnalystResult(
             route=Route.ANSWER,
             draft_answer=(
-                "Under Section 53(1), second proviso of the Code on Social Security, 2020, "
-                "the five-year continuous service threshold does not apply to employees engaged on "
-                "fixed-term contracts. Gratuity is payable on a pro-rata basis upon the completion "
-                "of the 18-month fixed-term contract."
+                "Yes. Under the sixth proviso to section 53 of the Code on Social "
+                "Security, 2020, five years' continuous service is not necessary where "
+                "the employment ends on expiry of a fixed term; under the second proviso "
+                "an employee on fixed-term employment is paid gratuity on a pro-rata "
+                "basis."
             ),
             claims=claims,
-            retrieved_chunks=[chunk],
+            retrieved_chunks=[pro_rata, threshold],
             loop=LoopStats(steps=1, tool_calls=1, wall_clock_ms=200),
             prompt_version=self.prompt_version,
             correlation_id=correlation_id,

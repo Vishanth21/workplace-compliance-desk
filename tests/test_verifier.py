@@ -28,7 +28,7 @@ from contracts import (
 
 
 def make_sample_chunk(
-    chunk_id: str = "css2020-s53-1-prov-2",
+    chunk_id: str = "css2020-s53-proviso_2",
     status: ProvisionStatus = ProvisionStatus.IN_FORCE,
     part: str = "proviso_2",
     section: str = "53(1)",
@@ -92,7 +92,7 @@ def test_citation_resolution_valid():
 def test_citation_resolution_fabricated_chunk_fails():
     """Gate 3: Chunk cited by Analyst is not in retrieved_chunks -> passed=False."""
     verifier = Verifier()
-    chunk = make_sample_chunk(chunk_id="css2020-s53-1-prov-2")
+    chunk = make_sample_chunk(chunk_id="css2020-s53-proviso_2")
     # Claim cites a fabricated chunk id not present in retrieved_chunks
     claim = Claim(
         text="Fabricated rule assertion.",

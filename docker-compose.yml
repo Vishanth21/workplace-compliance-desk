@@ -11,6 +11,15 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - LOG_LEVEL=INFO
+      # Which analyst the service runs. "stub" replays the flagship advisory
+      # for every question; "real" runs the bounded LangGraph loop.
+      - ANALYST_MODE=${ANALYST_MODE:-stub}
+      # Model provider for ANALYST_MODE=real. "scripted" replays a fixed list;
+      # "openai" calls an OpenAI-compatible endpoint. An unknown value refuses
+      # to start rather than falling back.
+      - LLM_PROVIDER=${LLM_PROVIDER:-scripted}
+      # JSON list of scripted replies, read only when LLM_PROVIDER=scripted.
+      - LLM_SCRIPTED_RESPONSES=${LLM_SCRIPTED_RESPONSES:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

@@ -46,6 +46,9 @@ class LocalEmbedder(EmbeddingFunction[Documents]):
             [text], normalize_embeddings=True, show_progress_bar=False
         )[0].tolist()
 
+    def name(self) -> str:
+        return self.model_name
+
     def __call__(self, input: Documents) -> Embeddings:
         # Chroma routes both .add() and .query() here. Documents take no prefix;
         # the retrieval tool passes query vectors explicitly via encode_query.

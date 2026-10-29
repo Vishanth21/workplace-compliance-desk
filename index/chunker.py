@@ -47,14 +47,15 @@ _FOOTNOTE = re.compile(
     r"^\s*\d+\.\s+(Ins\.|Subs\.|Omitted|Added|Repealed|Rep\.|The words|For\s+section)"
 )
 
-# Any proviso opener, including "Provided also that" and wrapped continuations.
-_PROVISO_START = re.compile(r"^\s{15,}Provided\b")
+# Any proviso opener, including "Provided also that", wrapped continuations,
+# and lines with left-margin running heads.
+_PROVISO_START = re.compile(r"^(?:\s{15,}|[^\d\n]{1,20}?\s{5,})Provided\b")
 
-# "Explanation 1.—" / "Explanation.—"
-_EXPLANATION_START = re.compile(r"^\s{0,20}Explanation\s*\d*\.\s*—")
+# "Explanation 1.—" / "Explanation.--"
+_EXPLANATION_START = re.compile(r"^\s{0,20}Explanation\s*\d*\.\s*(?:—|--)")
 
-# Sub-section start, e.g. "(2) For every completed year"
-_SUBSECTION_START = re.compile(r"^\s*\((\d+)\)\s")
+# Sub-section start, e.g. "(2) For every completed year" or "(3)"
+_SUBSECTION_START = re.compile(r"^\s*\(([2-9]|\d{2,})\)\s")
 
 
 @dataclass
@@ -139,36 +140,35 @@ def extract_sections(text: str) -> list[RawSection]:
 def _split_parts(lines: list[str]) -> list[tuple[str, str]]:
     """Split one section into (part_name, text) pairs.
 
-    ``main`` holds everything before the first proviso or explanation.
-    Provisos are numbered in order of appearance, 1-based. Explanations are
-    separate parts because they define terms used by the main clause.
+    ``main`` holds everything before the first proviso or explanation, as well as
+    subsections following provisos. Provisos are numbered in order of appearance, 1-based.
+    Explanations are separate parts because they define terms used by the main clause.
     """
-    parts: list[tuple[str, list[str]]] = []
+    parts_map: dict[str, list[str]] = {}
     current_name = "main"
-    current_lines: list[str] = []
+    parts_map[current_name] = []
     proviso_n = 0
     explanation_n = 0
 
     for line in lines:
         if _PROVISO_START.match(line):
-            if current_lines:
-                parts.append((current_name, current_lines))
             proviso_n += 1
             current_name = f"proviso_{proviso_n}"
-            current_lines = [line]
+            parts_map[current_name] = []
+            m_prov = re.search(r"\bProvided\b.*$", line)
+            parts_map[current_name].append(m_prov.group(0) if m_prov else line)
         elif _EXPLANATION_START.match(line):
-            if current_lines:
-                parts.append((current_name, current_lines))
             explanation_n += 1
             current_name = f"explanation_{explanation_n}" if explanation_n > 1 else "explanation"
-            current_lines = [line]
+            parts_map[current_name] = []
+            parts_map[current_name].append(line)
+        elif _SUBSECTION_START.match(line) and current_name.startswith("proviso"):
+            current_name = "main"
+            parts_map[current_name].append(line)
         else:
-            current_lines.append(line)
+            parts_map[current_name].append(line)
 
-    if current_lines:
-        parts.append((current_name, current_lines))
-
-    return [(name, _clean(" ".join(ls))) for name, ls in parts if _clean(" ".join(ls))]
+    return [(name, _clean(" ".join(ls))) for name, ls in parts_map.items() if _clean(" ".join(ls))]
 
 
 def chunk_document(

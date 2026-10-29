@@ -27,7 +27,7 @@ _PART_RE = re.compile(
 class Chunk(BaseModel):
     """One retrievable unit of statute."""
 
-    chunk_id: str = Field(description="Stable id, e.g. 'css2020-s53-proviso_2'.")
+    chunk_id: str = Field(description="Stable id, e.g. 'css2020-s53-proviso_2' or 'css2020-s53_r2-main' for repeated sections (s<n>_r<k>).")
     doc: str = Field(description="Source document short name, e.g. 'css2020'.")
     section: str = Field(description="Section identifier as printed, e.g. '53(1)'.")
     part: str = Field(

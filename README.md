@@ -169,16 +169,13 @@ Be precise about this — the honest version is more useful than an aspirational
 - **Injection guard** (`app/guard.py`) — instruction-override attempts are quarantined at ingestion with a `prompt_injection` field error, before any run is created.
 - **Eval set** (`tests/eval_scenarios.py`, `tests/test_eval.py`) — 20 scenarios through the real loop and the deterministic verifier.
 - **Web client** (`app/static/index.html`) — A8. Submit, poll, render route/answer/citations/escalation.
-- **Corpus pipeline code** (`index/build.py`, `index/chunker.py`, `index/embedder.py`) — chunking, local `all-MiniLM-L6-v2` embeddings, idempotent Chroma build with a build fingerprint.
-
-**Present but not wired into the running service:**
-
-- **Retrieval is in-memory, not semantic.** `index/retrieve.py` answers from a hardcoded `CORPUS_CHUNKS` list. `corpus_search` is a fixed ranking over that list, not a vector search. The Chroma index that `index/build.py` builds is never queried at runtime, and nothing in `agent/` or `app/` imports `chromadb`. Treat `index/build.py` as the intended pipeline, not the active one.
+- **Corpus pipeline & runtime retrieval** (`index/build.py`, `index/chunker.py`, `index/embedder.py`, `index/retrieve.py`) — L1, F5, D2. 621 statutory chunks embedded into persistent Chroma with `all-MiniLM-L6-v2`. Runtime `corpus_search` and `lookup_clause` query Chroma directly without artificial rank scoring.
+- **Model resilience & circuit breaker** (`agent/resilience.py`) — A5. Configurable exponential backoff retry on transient errors, 3-state circuit breaker (`CLOSED`, `OPEN`, `HALF_OPEN`), and safe fallback to `legal-counsel-review` on upstream failure.
 
 **Cut deliberately** (see PLAN.md for the reasoning):
 
 - Trace visualisation in Jaeger/Grafana. Run reconstruction is via structured logs with a correlation ID.
-- Locust load testing and measured p95. The SLO is declared, not measured.
+- Locust load testing and measured p95. The SLO is declared as p95 latency <= 2,500 ms (end-to-end async execution under nominal load), tracked via correlation IDs and step latency stats. Dedicated load testing measurement was cut in favour of §4.1 depth.
 - `--scale` measurement, response caching, the feedback endpoint, toxicity detection.
 - Gemini support, and any live-model verification (see above).
 
@@ -224,12 +221,12 @@ force an escalation.
 uv run pytest
 ```
 
-184 tests, 7 skipped. The skips are the cases that need a live model
-(`OPENAI_API_KEY`, and `LLM_LIVE_URL` for the two endpoint tests). Coverage by module:
+192 tests passed, 7 skipped. The skips are 5 eval scenarios where verification outcome is intentionally unspecified, and 2 endpoint tests in `test_openai_adapter.py` that gate on `LLM_LIVE_URL` alone. Coverage by module:
 
 | File | What it pins |
 |---|---|
 | `tests/test_api.py` | Endpoints, validation, injection quarantine, queue, verification, metrics, the UI mount |
+| `tests/test_circuit_breaker.py` | A5: Exponential backoff retries, 3-state circuit breaker, fast-fail on OPEN, manual trip trigger |
 | `tests/test_verifier.py` | Citation resolution, claim support, hard triggers |
 | `tests/test_analyst.py` | The bounded loop, derived second query, model failure → escalation |
 | `tests/test_analyst_selection.py` | `ANALYST_MODE` selection and the stub/real difference |

@@ -174,8 +174,14 @@ class Verifier:
         self, claim_text: str, passages: list[Chunk]
     ) -> tuple[bool, str]:
         """Query the model with response_schema=Verdict to check if passages support claim."""
+        # The chunk's in-force/repealed status is metadata, not part of the
+        # statutory text. Leaving it out asked the model to confirm claims like
+        # "the 1972 Act is repealed" from passages that never say so, so every
+        # correct answer naming the repeal was refused. Stage 1 already trusts
+        # this field, so the checker must see it too.
         passages_text = "\n\n".join(
-            f"[{p.chunk_id}] {p.doc} section {p.section} ({p.part}):\n{p.text}"
+            f"[{p.chunk_id}] {p.doc} section {p.section} ({p.part}) "
+            f"[status: {p.status.value}]:\n{p.text}"
             for p in passages
         )
 

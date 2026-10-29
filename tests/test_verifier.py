@@ -198,6 +198,34 @@ def test_verifier_with_model_unsupported():
     assert "Claim 0: Passage does not mention 100 days notice" in outcome.reason
 
 
+def test_verifier_shows_chunk_status_to_model():
+    """The checker must see in-force/repealed, or repeal claims fail wrongly.
+
+    Chunk status is metadata, not statutory text. A correct answer that says
+    "the 1972 Act is repealed" cites passages that never contain the word, so
+    if the prompt omits status the model rightly calls the claim unsupported
+    and the flagship contrast -- the point of the corpus -- is always refused.
+    """
+    mock_model = ScriptedModel(
+        [Verdict(supported=True, reason="Status confirms the provision is repealed")]
+    )
+    verifier = Verifier(model=mock_model)
+    chunk = make_sample_chunk()
+    claim = Claim(
+        text="Section 4 of the 1972 Act is repealed.", citations=[chunk.chunk_id]
+    )
+    result = make_analyst_result([claim], [chunk])
+
+    verifier.verify(result)
+
+    assert len(mock_model.calls) == 1
+    # calls is list[list[Message]]: one entry per complete(), each a message list.
+    prompt = mock_model.calls[0][1]["content"]
+    assert f"status: {chunk.status.value}" in prompt, (
+        "the claim checker was not told the chunk's provision status"
+    )
+
+
 # --- 4. ScriptedVerifier tests ---
 
 def test_scripted_verifier_deterministic():

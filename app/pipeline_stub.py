@@ -19,15 +19,72 @@ from contracts import (
     VerificationOutcome,
 )
 
-from .analyst import AnalystProtocol, StubAnalyst
+from .analyst import AnalystProtocol, RealAnalyst, StubAnalyst
 from .queue import run_correlations
 from .store import metrics_counters, runs
 
+
+def _build_analyst() -> AnalystProtocol:
+    """Select the analyst from ``ANALYST_MODE``.
+
+    ``stub`` (the default) replays the flagship advisory for every question and
+    keeps the test suite deterministic. ``real`` runs the bounded LangGraph loop
+    over the corpus tools with whatever ``LLM_PROVIDER`` resolves to.
+
+    Defaulting to ``stub`` is deliberate: a fresh clone with no model
+    configured still starts, still passes its tests, and still answers. Asking
+    for the real loop is an explicit act.
+    """
+    # Strip first: a blank or whitespace-only value must mean "unset", not
+    # "an unknown mode". ``os.getenv(...) or "stub"`` would not catch "   ".
+    mode = (os.getenv("ANALYST_MODE") or "").strip().lower() or "stub"
+    if mode == "real":
+        return RealAnalyst()
+    if mode != "stub":
+        raise ValueError(
+            f"unknown ANALYST_MODE {mode!r}; expected 'stub' or 'real'"
+        )
+    return StubAnalyst()
+
+
+def _build_verifier() -> VerifierProtocol:
+    """Build the verifier, attaching a model when one is configured.
+
+    The deterministic checks (citation resolution, cite-nothing, cite-only-
+    repealed) run with or without a model. The model is what adds the
+    claim-vs-passage check -- does the cited text actually support the claim?
+
+    Without a model that check is silently skipped, which was invisible while
+    the stub analyst produced pre-verified output by construction. As soon as a
+    real LLM drafts answers, skipping it means an answer can cite real chunk ids
+    and still assert something those chunks do not say.
+
+    ``VERIFIER_MODEL=off`` keeps the deterministic-only path, for tests and for
+    running without a model at all. Anything else attaches ``get_model()``.
+    ``skip`` is checked first so a test suite without credentials never builds
+    a provider.
+    """
+    mode = (os.getenv("VERIFIER_MODEL") or "on").strip().lower()
+    if mode == "off":
+        return Verifier()
+
+    provider = (os.getenv("LLM_PROVIDER") or "scripted").strip().lower()
+    if provider == "scripted":
+        # A scripted provider with no script raises on first call, and the
+        # verifier would turn every claim into a failure. The default path must
+        # stay useful, so only attach a model when the provider can answer.
+        if not os.getenv("LLM_SCRIPTED_RESPONSES"):
+            return Verifier()
+
+    from agent.model import get_model
+
+    return Verifier(model=get_model())
+
+
 # Default agent instances.
-# Swap the analyst for a real implementation once one exists; every caller
-# reads this module-level binding, so this single line is the seam.
-analyst: AnalystProtocol = StubAnalyst()
-verifier: VerifierProtocol = Verifier()
+# Every caller reads these module-level bindings, so this is the seam.
+analyst: AnalystProtocol = _build_analyst()
+verifier: VerifierProtocol = _build_verifier()
 
 
 def set_analyst(new_analyst: AnalystProtocol) -> None:

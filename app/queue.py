@@ -36,7 +36,7 @@ _workers: list[asyncio.Task] = []
 
 async def queue_worker(worker_id: int) -> None:
     """Worker task that consumes run ids from the queue and executes the pipeline."""
-    from .pipeline_stub import run_pipeline
+    from .pipeline import run_pipeline
 
     logger.info("Worker %d started", worker_id)
     while True:

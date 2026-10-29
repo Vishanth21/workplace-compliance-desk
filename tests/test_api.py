@@ -182,6 +182,10 @@ def test_metrics_endpoint():
     assert "compliance_runs_quarantined_total" in response.text
     assert "compliance_queue_depth" in response.text
     assert "compliance_workers_total" in response.text
+    assert "compliance_index_chunks" in response.text
+    assert "compliance_index_freshness_seconds" in response.text
+    assert "compliance_circuit_breaker_open" in response.text
+    assert "compliance_circuit_breaker_trips_total" in response.text
 
 
 def test_submit_valid_run_returns_202():

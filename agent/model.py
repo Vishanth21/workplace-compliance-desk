@@ -32,6 +32,7 @@ import json
 import os
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
+import httpx
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -265,8 +266,6 @@ class OpenAIModel:
 
         url = f"{self.base_url}/chat/completions"
         try:
-            import httpx
-
             response = httpx.post(
                 url, json=body, headers=headers, timeout=self.timeout_s
             )
@@ -317,7 +316,7 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value or None
 
 
-def get_model(provider: str | None = None) -> Model:
+def get_model(provider: str | None = None, *, wrap_resilient: bool = True) -> Model:
     """Return the configured model.
 
     Reads ``LLM_PROVIDER`` (default ``scripted``) unless ``provider`` is given.
@@ -326,21 +325,31 @@ def get_model(provider: str | None = None) -> Model:
     Defaulting to ``scripted`` is deliberate: a fresh clone with a placeholder
     API key still imports and still runs its tests. Asking for a real provider
     is an explicit act.
+
+    When ``wrap_resilient`` is True and ``LLM_RESILIENCE`` is not "off", wraps
+    the model with ``ResilientModel`` (A5 circuit breaker and backoff retry).
     """
     chosen = (provider or _env("LLM_PROVIDER") or "scripted").lower()
 
+    model: Model
     if chosen == "scripted":
         # An empty script is a valid starting point for wiring; any real call
         # raises with a clear message.
         raw = _env("LLM_SCRIPTED_RESPONSES")
         responses = json.loads(raw) if raw else []
-        return ScriptedModel(responses)
+        model = ScriptedModel(responses)
+    elif chosen == "openai":
+        model = OpenAIModel()
+    else:
+        raise ModelError(
+            f"unknown LLM_PROVIDER {chosen!r}. Known providers: "
+            f"{', '.join(_KNOWN_PROVIDERS)}. Add an adapter in agent/model.py and "
+            f"register it in _KNOWN_PROVIDERS to use another."
+        )
 
-    if chosen == "openai":
-        return OpenAIModel()
+    if wrap_resilient and (_env("LLM_RESILIENCE") or "on").lower() != "off":
+        from .resilience import ResilientModel
 
-    raise ModelError(
-        f"unknown LLM_PROVIDER {chosen!r}. Known providers: "
-        f"{', '.join(_KNOWN_PROVIDERS)}. Add an adapter in agent/model.py and "
-        f"register it in _KNOWN_PROVIDERS to use another."
-    )
+        return ResilientModel(model)
+
+    return model

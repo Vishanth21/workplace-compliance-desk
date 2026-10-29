@@ -61,6 +61,43 @@ def test_answer_without_tools_completes():
     assert result.prompt_version
 
 
+def test_answer_claiming_failed_search_without_searching_is_refused():
+    """A model may answer without tools, but may not claim it searched.
+
+    Observed against a live model: at step 0, with no tool call and no chunks,
+    it replied "my searches ... returned no usable corpus text". Nothing had
+    been searched. The claim reads as evidence and is fabricated, so the loop
+    sends it back to actually search. The truthful one-step answer in
+    ``test_answer_without_tools_completes`` still completes -- the guard is on
+    the fabricated claim, not on answering without tools.
+    """
+    fabricated = (
+        "I can't answer this. My searches and the section lookup returned no "
+        "usable corpus text, so I have no reliable basis."
+    )
+    model = ScriptedModel(
+        [
+            _answer(fabricated),
+            _tool("corpus_search", query="gratuity fixed term"),
+            _answer(
+                "Proviso 2 requires pro rata gratuity for fixed-term staff.",
+                cites=["css2020-s53-proviso_2"],
+            ),
+        ]
+    )
+    result = analyse("Do we owe gratuity?", REQUEST, model=model)
+
+    # The fabricated answer was rejected and the run continued past it.
+    assert result.loop.steps == 3
+    assert result.draft_answer != fabricated
+    assert result.route == Route.ANSWER
+
+    # The refusal was fed back, naming what was wrong.
+    feedback = [m for m in model.calls[1] if m.get("role") == "tool"]
+    assert feedback, "the model was not told its answer claimed a search it never ran"
+    assert "no provisions retrieved yet" in json.loads(feedback[0]["content"])["error"]
+
+
 def test_one_tool_call_then_answer():
     model = ScriptedModel(
         [

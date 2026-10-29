@@ -17,6 +17,7 @@ network and no API key.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from enum import StrEnum
@@ -127,6 +128,43 @@ When you are ready to answer, set action to 'answer', put the reply in
 """
 
 
+#: Phrases that assert a retrieval attempt happened. Used only when the agent
+#: has made no tool call at all, so an honest "the search returned nothing"
+#: after a real search is never matched.
+_RETRIEVAL_CLAIM_PATTERNS = (
+    r"\bsearch(es|ed)?\b",
+    r"\blookup(s)?\b",
+    r"\bcorpus\b",
+    r"\bretriev(e|ed|al)\b",
+    r"\bquer(y|ies|ied)\b",
+)
+
+#: Phrases that assert the retrieval came back empty.
+_EMPTY_RESULT_PATTERNS = (
+    r"\bno (usable |relevant |matching )?(corpus )?(text|result|results|provision|provisions|passage|passages|chunks?)\b",
+    r"\breturned nothing\b",
+    r"\breturned no\b",
+    r"\bfound nothing\b",
+    r"\bcame back empty\b",
+    r"\bno usable\b",
+)
+
+
+def _claims_failed_retrieval(text: str) -> bool:
+    """True when ``text`` asserts that a search was run and found nothing.
+
+    Only called when no tool has run. The two families must co-occur: "the
+    corpus cannot answer this" alone is a legitimate limitation statement, and
+    "I could not look that up" alone is honest after a failed dispatch. What is
+    caught is the conjunction -- claiming both a search and its emptiness when
+    no search took place.
+    """
+    lowered = text.lower()
+    claims_search = any(re.search(p, lowered) for p in _RETRIEVAL_CLAIM_PATTERNS)
+    claims_empty = any(re.search(p, lowered) for p in _EMPTY_RESULT_PATTERNS)
+    return claims_search and claims_empty
+
+
 def _build_messages(state: AnalystState) -> list[Message]:
     """System prompt, the question, then the tool transcript so far."""
     base: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -216,6 +254,40 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
                     "content": json.dumps(
                         {"error": f"unknown action {step.action!r}; "
                                   f"expected {[a.value for a in Action]}"}
+                    ),
+                    "name": "",
+                }
+            ],
+            "steps": steps + 1,
+            "needs_retry": True,
+        }
+
+    # An answer may not claim a retrieval outcome that never happened.
+    #
+    # Answering without tools is allowed on purpose -- a general question does
+    # not need a search, and forcing one would make the one-step path dead code
+    # (see tests/eval_scenarios.py::ans-answer-without-tools). What is *not*
+    # allowed is asserting a process the agent did not run. Observed against a
+    # live model: at step 0, with no tool call and no chunks, it answered "my
+    # searches ... returned no usable corpus text". That is a fabricated
+    # process claim -- it reads as evidence of a failed search when no search
+    # occurred -- and it is the kind of thing a reviewer would trust.
+    #
+    # So the guard is on the *claim*, not on answering. A model that answers
+    # plainly ("Yes, gratuity is statutory") passes; one that says it searched
+    # when it did not is sent back to actually search.
+    if not state.get("tool_calls") and _claims_failed_retrieval(step.answer or ""):
+        return {
+            "messages": state["messages"]
+            + [
+                {
+                    "role": "tool",
+                    "content": json.dumps(
+                        {
+                            "error": "no provisions retrieved yet; call corpus_search "
+                            "or lookup_clause before answering, and cite only what "
+                            "you have actually retrieved"
+                        }
                     ),
                     "name": "",
                 }

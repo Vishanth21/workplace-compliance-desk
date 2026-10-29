@@ -1,4 +1,5 @@
 services:
+  # 1. Web API & UI Client
   api:
     build:
       context: .
@@ -11,17 +12,70 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - LOG_LEVEL=INFO
-      # Which analyst the service runs. "stub" replays the flagship advisory
-      # for every question; "real" runs the bounded LangGraph loop.
       - ANALYST_MODE=${ANALYST_MODE:-stub}
-      # Model provider for ANALYST_MODE=real. "scripted" replays a fixed list;
-      # "openai" calls an OpenAI-compatible endpoint. An unknown value refuses
-      # to start rather than falling back.
       - LLM_PROVIDER=${LLM_PROVIDER:-scripted}
-      # JSON list of scripted replies, read only when LLM_PROVIDER=scripted.
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://model-stub:8080/v1}
+      - LLM_MODEL=${LLM_MODEL:-stub-compliance-model}
       - LLM_SCRIPTED_RESPONSES=${LLM_SCRIPTED_RESPONSES:-}
+      - REDIS_URL=redis://queue:6379/0
+    depends_on:
+      queue:
+        condition: service_healthy
+      model-stub:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  # 2. Asynchronous Background Task Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: compliance-worker
+    command: ["python", "-m", "app.worker"]
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - ANALYST_MODE=${ANALYST_MODE:-stub}
+      - LLM_PROVIDER=${LLM_PROVIDER:-scripted}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://model-stub:8080/v1}
+      - LLM_MODEL=${LLM_MODEL:-stub-compliance-model}
+      - REDIS_URL=redis://queue:6379/0
+    depends_on:
+      queue:
+        condition: service_healthy
+      model-stub:
+        condition: service_healthy
+
+  # 3. Message Queue & State Broker
+  queue:
+    image: redis:7-alpine
+    container_name: compliance-queue
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 4. OpenAI-Compatible Mock Model Inference Stub
+  model-stub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: compliance-model-stub
+    command: ["python", "-m", "agent.model_stub_server"]
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

@@ -79,8 +79,15 @@ def test_get_model_defaults_to_scripted(monkeypatch):
 
 
 def test_get_model_unknown_provider_names_the_known_ones(monkeypatch):
-    monkeypatch.setenv("LLM_PROVIDER", "openai")
-    with pytest.raises(ModelError, match="unknown LLM_PROVIDER 'openai'"):
+    """An unknown name must list the providers that do exist.
+
+    This used to use 'openai' as the unknown example. openai is now an
+    implemented provider (see docs/adr/0002), so the example moved to a name
+    that is still genuinely unknown -- the property under test is the error
+    message, not which provider happens to be missing.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "cohere")
+    with pytest.raises(ModelError, match="unknown LLM_PROVIDER 'cohere'"):
         get_model()
 
 

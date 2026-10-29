@@ -156,11 +156,158 @@ class ScriptedModel:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI-compatible HTTP endpoint
+# ---------------------------------------------------------------------------
+
+
+class OpenAIModel:
+    """Talks to any OpenAI-compatible ``/chat/completions`` endpoint.
+
+    Covers OpenAI itself, Azure-compatible gateways, and local inference servers
+    (vLLM, llama.cpp, LM Studio). Nothing in the class is specific to one
+    vendor: the base URL is configuration.
+
+    Configuration, read at call time so a process can be reconfigured without
+    a rebuild:
+
+    * ``LLM_BASE_URL``   -- e.g. ``https://api.example.com/v1``
+    * ``LLM_API_KEY``    -- falls back to ``OPENAI_API_KEY``
+    * ``LLM_MODEL``      -- the model name the endpoint expects
+    * ``LLM_TIMEOUT_S``  -- per-request timeout, default 60
+
+    Retries are deliberately *not* handled here. ``ModelError`` documents that
+    retryable failures belong to the caller, and the circuit breaker (A5) is
+    that caller. An adapter that retried internally would hide the failures the
+    breaker exists to detect.
+    """
+
+    name = "openai"
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        self.base_url = (base_url or _env("LLM_BASE_URL") or "").rstrip("/")
+        self.api_key = api_key or _env("LLM_API_KEY") or _env("OPENAI_API_KEY")
+        self.model = model or _env("LLM_MODEL")
+        raw_timeout = timeout_s if timeout_s is not None else _env("LLM_TIMEOUT_S")
+        self.timeout_s = float(raw_timeout) if raw_timeout else 60.0
+
+        if not self.base_url:
+            raise ModelError(
+                "LLM_PROVIDER=openai needs LLM_BASE_URL, e.g. "
+                "https://api.example.com/v1"
+            )
+        if not self.model:
+            raise ModelError(
+                "LLM_PROVIDER=openai needs LLM_MODEL, e.g. your-model-name"
+            )
+        # An endpoint with no auth is unusual but legal; do not fail on it. The
+        # server answers 401 and that surfaces as a ModelError with context.
+
+        #: Every call made, matching ScriptedModel, for tests that assert on it.
+        self.calls: list[list[Message]] = []
+
+    def _request_body(
+        self,
+        messages: list[Message],
+        response_schema: type[T] | None,
+        max_tokens: int | None,
+        temperature: float | None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"model": self.model, "messages": messages}
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        if temperature is not None:
+            body["temperature"] = temperature
+
+        if response_schema is not None:
+            # JSON mode plus the schema in the prompt. Function calling would
+            # also work, but both call sites (Step, Verdict) are flat objects
+            # and several OpenAI-compatible servers implement JSON mode and
+            # not tools. The schema instruction is what makes the difference
+            # in practice; validation below is what makes it safe.
+            body["response_format"] = {"type": "json_object"}
+            schema_json = json.dumps(
+                response_schema.model_json_schema(), separators=(",", ":")
+            )
+            body["messages"] = [
+                *messages,
+                {
+                    "role": "system",
+                    "content": (
+                        "Reply with a single JSON object and nothing else. "
+                        "It must conform to this JSON Schema:\n" + schema_json
+                    ),
+                },
+            ]
+        return body
+
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        response_schema: type[T] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str | T:
+        self.calls.append(messages)
+        body = self._request_body(
+            messages, response_schema, max_tokens, temperature
+        )
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        url = f"{self.base_url}/chat/completions"
+        try:
+            import httpx
+
+            response = httpx.post(
+                url, json=body, headers=headers, timeout=self.timeout_s
+            )
+        except Exception as exc:  # noqa: BLE001 - normalised to ModelError
+            raise ModelError(f"model endpoint {url} unreachable: {exc}") from exc
+
+        if response.status_code != 200:
+            # Truncate: an HTML error page from a misrouted proxy is not
+            # useful in an exception message.
+            raise ModelError(
+                f"model endpoint {url} returned HTTP {response.status_code}: "
+                f"{response.text[:300]}"
+            )
+
+        try:
+            payload = response.json()
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ModelError(
+                f"model endpoint {url} returned an unexpected body: "
+                f"{response.text[:300]}"
+            ) from exc
+
+        if response_schema is None:
+            return content
+
+        try:
+            return response_schema.model_validate_json(content)
+        except Exception as exc:  # noqa: BLE001 - re-raised with the payload
+            raise ModelError(
+                f"model reply is not valid JSON for {response_schema.__name__}: "
+                f"{exc}. Reply was: {content[:300]}"
+            ) from exc
+
+
+# ---------------------------------------------------------------------------
 # Provider selection
 # ---------------------------------------------------------------------------
 
 #: Providers with an adapter in this module.
-_KNOWN_PROVIDERS = ("scripted",)
+_KNOWN_PROVIDERS = ("scripted", "openai")
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -188,6 +335,9 @@ def get_model(provider: str | None = None) -> Model:
         raw = _env("LLM_SCRIPTED_RESPONSES")
         responses = json.loads(raw) if raw else []
         return ScriptedModel(responses)
+
+    if chosen == "openai":
+        return OpenAIModel()
 
     raise ModelError(
         f"unknown LLM_PROVIDER {chosen!r}. Known providers: "

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workplace Compliance Advisory Desk</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 4rem;
+    line-height: 1.5; color: #1a1a1a; background: #fafafa;
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  .sub { color: #666; font-size: .875rem; margin-bottom: 1.5rem; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin: 0 0 1rem; background: #fff; }
+  legend { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #555; padding: 0 .35rem; }
+  label { display: block; font-size: .8rem; font-weight: 600; margin-bottom: .25rem; color: #444; }
+  input, textarea, select {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: .9rem;
+    padding: .45rem .55rem; border: 1px solid #ccc; border-radius: 4px; background: #fff;
+  }
+  textarea { resize: vertical; min-height: 4.5rem; }
+  .row { display: flex; gap: .75rem; }
+  .row > div { flex: 1; }
+  .field { margin-bottom: .75rem; }
+  .field:last-child { margin-bottom: 0; }
+  .check { display: flex; align-items: center; gap: .4rem; }
+  .check input { width: auto; }
+  .check label { margin: 0; font-weight: 400; }
+  button {
+    font: inherit; font-size: .9rem; font-weight: 600; padding: .55rem 1.1rem;
+    border: 0; border-radius: 4px; background: #1f5fbf; color: #fff; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #174a96; }
+  button:disabled { background: #b9c4d4; cursor: not-allowed; }
+  #result { margin-top: 1.5rem; }
+  .card { border: 1px solid #ddd; border-radius: 6px; background: #fff; padding: 1rem; }
+  .route {
+    display: inline-block; font-size: .75rem; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; padding: .2rem .5rem; border-radius: 3px; margin-bottom: .6rem;
+  }
+  .route-answer-with-citation { background: #dcf5e3; color: #14612c; }
+  .route-request-more-detail { background: #fdf0d0; color: #7a5200; }
+  .route-legal-counsel-review { background: #fbdcdc; color: #8a1c1c; }
+  .answer { white-space: pre-wrap; margin: 0 0 1rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #555; margin: 1.25rem 0 .5rem; }
+  ol.cites { margin: 0; padding-left: 1.4rem; }
+  ol.cites li { margin-bottom: .75rem; font-size: .875rem; }
+  .cite-id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .78rem; color: #1f5fbf; }
+  .cite-text { margin-top: .2rem; color: #333; }
+  .muted { color: #666; font-size: .8rem; }
+  .notice { border-left: 3px solid #c9a227; background: #fffaeb; padding: .6rem .75rem; font-size: .875rem; margin: 0 0 1rem; }
+  .error { border-left: 3px solid #c0392b; background: #fdf0ee; padding: .6rem .75rem; font-size: .875rem; white-space: pre-wrap; }
+  .esc { margin-top: 1rem; padding: .75rem; background: #f6f6f6; border-radius: 4px; font-size: .875rem; }
+  .status { font-size: .8rem; color: #666; margin-bottom: .5rem; }
+</style>
+</head>
+<body>
+<h1>Workplace Compliance Advisory Desk</h1>
+<p class="sub">Submit a compliance question. Answers are returned only when every claim is verified against the statute.</p>
+
+<form id="form">
+  <fieldset>
+    <legend>Question</legend>
+    <div class="field">
+      <label for="question">Compliance question</label>
+      <textarea id="question" required maxlength="2000"
+        placeholder="Can we withhold gratuity for an employee on a fixed-term contract who has completed 3 years?">Can we withhold gratuity for an employee on a fixed-term contract who has completed 3 years?</textarea>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Establishment</legend>
+    <div class="row">
+      <div class="field">
+        <label for="headcount">Headcount</label>
+        <input id="headcount" type="number" min="1" value="10" required>
+      </div>
+      <div class="field">
+        <label for="state">State</label>
+        <input id="state" type="text" value="Delhi" required maxlength="120">
+      </div>
+    </div>
+    <div class="field">
+      <label for="industry">Industry</label>
+      <input id="industry" type="text" value="Retail" required maxlength="120">
+    </div>
+    <div class="check">
+      <input id="fixed" type="checkbox" checked>
+      <label for="fixed">Has fixed-term employees</label>
+    </div>
+  </fieldset>
+
+  <button id="submit" type="submit">Submit</button>
+</form>
+
+<div id="result"></div>
+
+<script>
+const POLL_MS = 400;
+const MAX_POLLS = 75;
+
+const ROUTE_LABEL = {
+  "answer-with-citation": "Answered with citation",
+  "request-more-detail": "More detail required",
+  "legal-counsel-review": "Escalated to legal counsel",
+};
+
+const el = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function render(data) {
+  const result = el("result");
+
+  if (!data || !data.route) {
+    result.innerHTML = `<div class="card"><p class="muted">No route assigned (status: ${esc(data ? data.status : "unknown")}).</p></div>`;
+    return;
+  }
+
+  const parts = [];
+  parts.push(`<span class="route route-${esc(data.route)}">${esc(ROUTE_LABEL[data.route] || data.route)}</span>`);
+
+  if (data.route === "answer-with-citation" && data.answer) {
+    parts.push(`<p class="answer">${esc(data.answer)}</p>`);
+
+    const cites = data.citations || [];
+    if (cites.length) {
+      parts.push("<h2>Cited provisions</h2><ol class=\"cites\">");
+      for (const c of cites) {
+        parts.push(
+          `<li><span class="cite-id">${esc(c.chunk_id)}</span>` +
+          `<div class="cite-text">${esc(c.text)}</div></li>`
+        );
+      }
+      parts.push("</ol>");
+    }
+
+    const v = data.verification;
+    if (v) {
+      parts.push(
+        `<p class="muted">Verification: ${v.passed ? "passed" : "failed"} — ${esc(v.reason)}</p>`
+      );
+    }
+  } else {
+    // Escalation path: say what happens next and make the trigger visible.
+    const v = data.verification;
+    const reason = (v && v.reason) || "The request cannot be answered with a verified statutory citation.";
+    parts.push(
+      `<div class="esc"><strong>Why this was escalated</strong><div>${esc(reason)}</div>` +
+      `<div class="muted" style="margin-top:.4rem">No unverified answer is returned. ` +
+      `Route the question to legal counsel with the establishment details above.</div></div>`
+    );
+    if (v) {
+      parts.push(`<p class="muted">Verification: ${v.passed ? "passed" : "failed"}</p>`);
+    }
+  }
+
+  result.innerHTML = `<div class="card">${parts.join("")}</div>`;
+}
+
+function renderError(message) {
+  el("result").innerHTML = `<div class="card"><div class="error">${esc(message)}</div></div>`;
+}
+
+async function poll(statusUrl) {
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const res = await fetch(statusUrl, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`Polling failed (HTTP ${res.status})`);
+    const data = await res.json();
+    if (data.status === "succeeded" || data.status === "failed" || data.status === "quarantined") {
+      return data;
+    }
+    el("result").innerHTML =
+      `<div class="card"><p class="status">Status: ${esc(data.status)}…</p></div>`;
+  }
+  throw new Error("Timed out waiting for the run to finish.");
+}
+
+el("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = el("submit");
+  btn.disabled = true;
+  el("result").innerHTML = "";
+
+  const payload = {
+    question: el("question").value.trim(),
+    establishment: {
+      headcount: Number(el("headcount").value),
+      industry: el("industry").value.trim(),
+      state: el("state").value.trim(),
+      has_fixed_term_employees: el("fixed").checked,
+    },
+  };
+
+  try {
+    const res = await fetch("/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    // A rejected request never starts a run; surface the field errors as-is.
+    if (res.status === 400 || res.status === 422) {
+      const body = await res.json();
+      if (body && Array.isArray(body.errors)) {
+        renderError(
+          `Request rejected and quarantined (no run started):\n` +
+          body.errors.map((e) => `• ${e.field}: ${e.message}`).join("\n")
+        );
+      } else {
+        renderError(JSON.stringify(body, null, 2));
+      }
+      return;
+    }
+    if (!res.ok) throw new Error(`Submit failed (HTTP ${res.status})`);
+
+    const accepted = await res.json();
+    const final = await poll(accepted.status_url);
+    render(final);
+  } catch (err) {
+    renderError(err.message || String(err));
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

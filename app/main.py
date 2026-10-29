@@ -10,11 +10,13 @@ Features:
 
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from contracts import (
     FieldError,
@@ -25,6 +27,7 @@ from contracts import (
     RunView,
 )
 
+from .guard import InjectionMatch, detect_injection
 from .queue import (
     WORKER_COUNT,
     get_queue_depth,
@@ -51,6 +54,18 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# A8: the demo web client. Served from the API process so `compose up` yields a
+# usable UI with no second server or build step. Anchored to this file's
+# directory so it resolves the same way from a checkout and from /app.
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+
+
+@app.get("/", include_in_schema=False)
+async def index() -> RedirectResponse:
+    """Send the bare host to the demo client."""
+    return RedirectResponse(url="/ui/")
 
 
 @app.exception_handler(RequestValidationError)
@@ -84,6 +99,42 @@ async def validation_exception_handler(
     )
 
     # Quarantine the rejection for inspection
+    quarantined_records.append(rejection)
+    metrics_counters["quarantined"] += 1
+
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content=rejection.model_dump(mode="json"),
+    )
+
+
+def _quarantine_injection(match: InjectionMatch) -> JSONResponse:
+    """Reject a prompt-injection attempt before any run is created.
+
+    Deliberately shares the schema-validation path: same 400 status, same
+    ``RejectionResponse`` body, same ``quarantined`` counter and same
+    ``quarantined_records`` entry. One quarantine path means the metrics and
+    the demo UI do not need to know *why* a request was refused.
+
+    Returned rather than raised so the declared ``response_model=RunAccepted``
+    does not reject the body: the endpoint's ``responses={400: ...}`` documents
+    this shape separately.
+    """
+    rejection = RejectionResponse(
+        status=RunStatus.QUARANTINED,
+        correlation_id=str(uuid.uuid4()),
+        errors=[
+            FieldError(
+                field="question",
+                code="prompt_injection",
+                message=(
+                    f"Question rejected by the ingestion guard "
+                    f"({match.category}). Rephrase as a compliance question."
+                ),
+            )
+        ],
+    )
+
     quarantined_records.append(rejection)
     metrics_counters["quarantined"] += 1
 
@@ -128,6 +179,7 @@ async def metrics() -> str:
     "/runs",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=RunAccepted,
+    responses={400: {"model": RejectionResponse}},
 )
 async def submit_run(run_request: RunRequest) -> RunAccepted:
     """Async submit endpoint.
@@ -136,6 +188,13 @@ async def submit_run(run_request: RunRequest) -> RunAccepted:
     initializes status to QUEUED in status store, and places run id onto queue.
     Returns 202 immediately.
     """
+    # Injection guard runs before any run state exists, so a rejected request
+    # leaves nothing queued. It reuses the quarantine path taken by schema
+    # validation: same 400 body, same counter, same stored record.
+    injection = detect_injection(run_request.question)
+    if injection is not None:
+        return _quarantine_injection(injection)
+
     run_id = str(uuid.uuid4())
     correlation_id = str(uuid.uuid4())
 

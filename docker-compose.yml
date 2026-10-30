@@ -18,6 +18,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-stub-compliance-model}
       - LLM_SCRIPTED_RESPONSES=${LLM_SCRIPTED_RESPONSES:-}
       - REDIS_URL=redis://queue:6379/0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     depends_on:
       queue:
         condition: service_healthy
@@ -44,6 +45,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://model-stub:8080/v1}
       - LLM_MODEL=${LLM_MODEL:-stub-compliance-model}
       - REDIS_URL=redis://queue:6379/0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     depends_on:
       queue:
         condition: service_healthy
@@ -79,3 +81,45 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # 5. Distributed Tracing Backend (D5)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: compliance-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  # 6. Metrics Collection (D5, D6)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: compliance-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    depends_on:
+      - api
+
+  # 7. Metrics Visualisation Dashboard (D5)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: compliance-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

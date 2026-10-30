@@ -34,7 +34,7 @@ class AnalystProtocol(Protocol):
 class StubAnalyst:
     """Stub Analyst producing the flagship compliance advisory."""
 
-    def __init__(self, prompt_version: str = "v1") -> None:
+    def __init__(self, prompt_version: str = "analyst-1") -> None:
         self.prompt_version = prompt_version
 
     async def analyze(self, request: RunRequest, correlation_id: str) -> AnalystResult:
@@ -104,9 +104,15 @@ class StubAnalyst:
 class RealAnalyst:
     """Real Analyst wrapping the LangGraph agent in agent.analyst."""
 
-    def __init__(self, model: Model | None = None, bounds: Bounds | None = None) -> None:
+    def __init__(
+        self,
+        model: Model | None = None,
+        bounds: Bounds | None = None,
+        prompt_version: str | None = None,
+    ) -> None:
         self.model = model
         self.bounds = bounds
+        self.prompt_version = prompt_version
 
     async def analyze(self, request: RunRequest, correlation_id: str) -> AnalystResult:
         return await asyncio.to_thread(
@@ -116,4 +122,5 @@ class RealAnalyst:
             model=self.model,
             bounds=self.bounds,
             correlation_id=correlation_id,
+            prompt_version=self.prompt_version,
         )

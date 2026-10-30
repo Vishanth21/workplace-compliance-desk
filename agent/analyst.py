@@ -29,10 +29,11 @@ from pydantic import BaseModel, Field
 from contracts import AnalystResult, Chunk, Claim, LoopStats, Route
 
 from .model import Message, Model, ScriptedModel, get_model
+from .prompts import DEFAULT_PROMPT_VERSION, PROMPT_VARIANTS, get_prompt_text
 from .tools import TOOL_NAMES, dispatch, schemas
 
-#: Bump when a prompt change alters output, so regressions trace to a revision.
-PROMPT_VERSION = "analyst-1"
+#: Default prompt version when not explicitly specified
+PROMPT_VERSION = DEFAULT_PROMPT_VERSION
 
 DEFAULT_MAX_STEPS = 8
 DEFAULT_MAX_TOOL_CALLS = 6
@@ -94,6 +95,7 @@ class AnalystState(TypedDict, total=False):
     answer: str
     #: The answer text shown to the user.
     answer_text: str
+    prompt_version: str
     #: Chunk ids the model says its answer relies on.
     cited_ids: list[str]
     #: Set when the model made a mistake it can correct, so ``think`` runs again.
@@ -166,8 +168,10 @@ def _claims_failed_retrieval(text: str) -> bool:
 
 
 def _build_messages(state: AnalystState) -> list[Message]:
-    """System prompt, the question, then the tool transcript so far."""
-    base: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """System prompt for the active version, question, then tool transcript."""
+    version = state.get("prompt_version") or PROMPT_VERSION
+    _, prompt_text = get_prompt_text(version)
+    base: list[Message] = [{"role": "system", "content": prompt_text}]
     base.extend(state["messages"])
     return base
 
@@ -387,7 +391,7 @@ def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
             tool_calls=state.get("tool_calls", 0),
             wall_clock_ms=elapsed_ms,
         ),
-        prompt_version=PROMPT_VERSION,
+        prompt_version=state.get("prompt_version") or PROMPT_VERSION,
         correlation_id=correlation_id,
     )
     return {"claims": claims, "route": route, "answer": answer, "result": result}
@@ -424,6 +428,7 @@ def analyse(
     model: Model | None = None,
     bounds: Bounds | None = None,
     correlation_id: str | None = None,
+    prompt_version: str | None = None,
 ) -> AnalystResult:
     """Run the Analyst over one question and return the hand-off.
 
@@ -431,12 +436,14 @@ def analyse(
     any part of it.
     """
     correlation_id = correlation_id or str(uuid.uuid4())
+    resolved_version = (prompt_version or os.getenv("PROMPT_VERSION") or DEFAULT_PROMPT_VERSION).strip()
     app = build_graph(model=model, bounds=bounds)
 
     initial: AnalystState = {
         "messages": [{"role": "user", "content": question}],
         "request": request,
         "correlation_id": correlation_id,
+        "prompt_version": resolved_version,
         "started_ms": time.perf_counter(),
         "steps": 0,
         "tool_calls": 0,

@@ -18,7 +18,7 @@ from app.analyst import StubAnalyst
 from app.main import app
 from app.pipeline_stub import set_analyst, set_verifier
 from app.queue import reset_queue
-from app.store import metrics_counters, quarantined_records, runs
+from app.store import metrics_counters, quarantined_records, run_latencies_s, run_traces, runs
 from contracts import (
     AnalystResult,
     Chunk,
@@ -44,6 +44,8 @@ def reset_store():
     metrics_counters["quarantined"] = 0
     metrics_counters["succeeded"] = 0
     metrics_counters["failed"] = 0
+    run_traces.clear()
+    run_latencies_s.clear()
 
 
 def test_health_endpoint():
@@ -186,6 +188,10 @@ def test_metrics_endpoint():
     assert "compliance_index_freshness_seconds" in response.text
     assert "compliance_circuit_breaker_open" in response.text
     assert "compliance_circuit_breaker_trips_total" in response.text
+    assert "compliance_run_latency_seconds_p50" in response.text
+    assert "compliance_run_latency_seconds_p95" in response.text
+    assert "compliance_availability_ratio" in response.text
+    assert "compliance_traces_reconstructed_total" in response.text
 
 
 def test_submit_valid_run_returns_202():
@@ -425,3 +431,43 @@ async def test_api_repealed_only_grounding_escalates():
         assert poll_data["citations"] == []
         assert poll_data["verification"]["passed"] is False
         assert 0 in poll_data["verification"]["failed_claims"]
+
+
+@pytest.mark.asyncio
+async def test_run_trace_reconstruction():
+    """Requirement D5: Verify complete run trajectory can be reconstructed via GET /runs/{id}/trace."""
+    from httpx import ASGITransport, AsyncClient
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload = {
+            "question": "Is gratuity payable on fixed-term contract completion?",
+            "establishment": {
+                "headcount": 25,
+                "industry": "Consulting",
+                "state": "Maharashtra",
+                "has_fixed_term_employees": True,
+            },
+        }
+        submit_res = await ac.post("/runs", json=payload)
+        run_id = submit_res.json()["run_id"]
+
+        await asyncio.sleep(0.6)
+
+        trace_res = await ac.get(f"/runs/{run_id}/trace")
+        assert trace_res.status_code == 200
+        trace = trace_res.json()
+        assert trace["run_id"] == run_id
+        assert trace["prompt_version"] == "analyst-1"
+        assert len(trace["steps"]) >= 2
+        assert trace["steps"][0]["action"] == "tool"
+        assert trace["steps"][-1]["action"] == "answer"
+        assert trace["total_latency_ms"] > 0
+        assert trace["verification"]["passed"] is True
+
+
+def test_get_nonexistent_trace_returns_404():
+    """Verify requesting trace for unknown run returns 404."""
+    client = TestClient(app)
+    res = client.get("/runs/nonexistent-run-id/trace")
+    assert res.status_code == 404

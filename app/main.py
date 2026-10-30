@@ -24,6 +24,7 @@ from contracts import (
     RunAccepted,
     RunRequest,
     RunStatus,
+    RunTrace,
     RunView,
 )
 
@@ -37,8 +38,15 @@ from .queue import (
     start_workers,
     stop_workers,
 )
-from .store import metrics_counters, quarantined_records, runs
+from .store import (
+    metrics_counters,
+    quarantined_records,
+    run_latencies_s,
+    run_traces,
+    runs,
+)
 from agent.resilience import get_circuit_breaker
+from agent.telemetry import trace_span
 from index.retrieve import get_index_metadata
 
 
@@ -152,6 +160,18 @@ async def metrics() -> str:
     cb = get_circuit_breaker()
     cb_open_flag = 1 if cb.state.value == "open" else 0
 
+    latencies = sorted(run_latencies_s)
+    if latencies:
+        p50 = latencies[int(len(latencies) * 0.50)]
+        p95_idx = min(int(len(latencies) * 0.95), len(latencies) - 1)
+        p95 = latencies[p95_idx]
+    else:
+        p50 = 0.0
+        p95 = 0.0
+
+    total_runs = metrics_counters["succeeded"] + metrics_counters["failed"]
+    availability = (metrics_counters["succeeded"] / total_runs) if total_runs > 0 else 1.0
+
     return (
         "# HELP compliance_runs_total Total compliance runs initiated.\n"
         "# TYPE compliance_runs_total counter\n"
@@ -183,6 +203,18 @@ async def metrics() -> str:
         "# HELP compliance_circuit_breaker_trips_total Total times the circuit breaker has tripped OPEN (A5).\n"
         "# TYPE compliance_circuit_breaker_trips_total counter\n"
         f"compliance_circuit_breaker_trips_total {cb.trip_count}\n"
+        "# HELP compliance_run_latency_seconds_p50 50th percentile (median) e2e run latency in seconds (D5, D6).\n"
+        "# TYPE compliance_run_latency_seconds_p50 gauge\n"
+        f"compliance_run_latency_seconds_p50 {p50:.4f}\n"
+        "# HELP compliance_run_latency_seconds_p95 95th percentile e2e run latency in seconds (D5, D6).\n"
+        "# TYPE compliance_run_latency_seconds_p95 gauge\n"
+        f"compliance_run_latency_seconds_p95 {p95:.4f}\n"
+        "# HELP compliance_availability_ratio Ratio of successful runs to total processed runs (D5).\n"
+        "# TYPE compliance_availability_ratio gauge\n"
+        f"compliance_availability_ratio {availability:.4f}\n"
+        "# HELP compliance_traces_reconstructed_total Total complete run execution traces stored for reconstruction (D5).\n"
+        "# TYPE compliance_traces_reconstructed_total counter\n"
+        f"compliance_traces_reconstructed_total {len(run_traces)}\n"
     )
 
 
@@ -227,8 +259,9 @@ async def submit_run(run_request: RunRequest) -> RunAccepted:
     # Ensure queue worker pool is active
     start_workers(WORKER_COUNT)
 
-    # Queue carries ids, not state
-    await run_queue.put(run_id)
+    with trace_span("http.submit_run", {"run_id": run_id, "correlation_id": correlation_id}):
+        # Queue carries ids, not state
+        await run_queue.put(run_id)
 
     return RunAccepted(
         run_id=run_id,
@@ -254,3 +287,24 @@ async def get_run(run_id: str) -> RunView:
             detail=f"Run '{run_id}' not found",
         )
     return run_view
+
+
+
+@app.get(
+    "/runs/{run_id}/trace",
+    response_model=RunTrace,
+    status_code=status.HTTP_200_OK,
+)
+async def get_run_trace(run_id: str) -> RunTrace:
+    """Trajectory reconstruction endpoint (D5).
+
+    Returns the complete step-by-step trace of the run including action, tool,
+    arguments, summary, passages consulted, step latency, tokens, cost, and verification.
+    """
+    trace = run_traces.get(run_id)
+    if trace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trace for run '{run_id}' not found",
+        )
+    return trace

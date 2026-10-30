@@ -18,6 +18,7 @@ from .api import (
     RunView,
 )
 from .route import Route, RunStatus
+from .trace import RunTrace, StepRecord
 
 __all__ = [
     "AnalystResult",
@@ -33,6 +34,8 @@ __all__ = [
     "RunAccepted",
     "RunRequest",
     "RunStatus",
+    "RunTrace",
     "RunView",
+    "StepRecord",
     "VerificationOutcome",
 ]

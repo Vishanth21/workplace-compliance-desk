@@ -1,0 +1,159 @@
+{
+  "title": "Workplace Compliance Advisory Desk",
+  "uid": "compliance-overview",
+  "version": 1,
+  "schemaVersion": 36,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "p50 E2E Latency (seconds)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "compliance_run_latency_seconds_p50",
+          "legendFormat": "p50",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.0}, {"color": "red", "value": 2.5}]}}}
+    },
+    {
+      "id": 2,
+      "title": "p95 E2E Latency (seconds) — SLO ≤ 2.5s",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "compliance_run_latency_seconds_p95",
+          "legendFormat": "p95",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.5}, {"color": "red", "value": 2.5}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Availability Ratio",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "compliance_availability_ratio",
+          "legendFormat": "availability",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.95}, {"color": "green", "value": 0.99}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Circuit Breaker State",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "compliance_circuit_breaker_open",
+          "legendFormat": "open=1",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 5,
+      "title": "Total Runs",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "compliance_runs_total",
+          "legendFormat": "Total",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "expr": "compliance_runs_succeeded_total",
+          "legendFormat": "Succeeded",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "expr": "compliance_runs_failed_total",
+          "legendFormat": "Failed",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "expr": "compliance_runs_quarantined_total",
+          "legendFormat": "Quarantined",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}}
+    },
+    {
+      "id": 6,
+      "title": "Queue Depth & Workers",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "compliance_queue_depth",
+          "legendFormat": "Queue Depth",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "expr": "compliance_workers_total",
+          "legendFormat": "Workers",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}}
+    },
+    {
+      "id": 7,
+      "title": "Traces Reconstructed",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "compliance_traces_reconstructed_total",
+          "legendFormat": "traces",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 8,
+      "title": "Index Chunks (freshness)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 12},
+      "targets": [
+        {
+          "expr": "compliance_index_chunks",
+          "legendFormat": "chunks",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 9,
+      "title": "Circuit Breaker Trips Total",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "compliance_circuit_breaker_trips_total",
+          "legendFormat": "trips",
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    }
+  ]
+}

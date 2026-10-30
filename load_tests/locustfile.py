@@ -82,3 +82,4 @@ class ComplianceUser(HttpUser):
             ),
             context={},
         )
+

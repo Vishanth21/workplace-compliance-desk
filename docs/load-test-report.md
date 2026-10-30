@@ -68,3 +68,4 @@ python load_tests/run_load_test.py
 | Locust distributed mode | Single-host test is sufficient to identify saturation. |
 | Measured p95 under real LLM | Stub latency only; real LLM SLO would be re-declared separately. |
 | Automatic SLO alerting in Grafana | Alert rules not provisioned; threshold visible on the panel. |
+

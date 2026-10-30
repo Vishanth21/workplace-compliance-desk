@@ -1,12 +1,6 @@
 # Workplace Compliance Advisory Desk
 
-Answers Indian labour-law questions from a statute corpus — and refuses to return
-any answer it cannot verify against a provision it actually retrieved.
-
-The core move is that **the system would rather escalate than guess.** Every
-drafted answer is checked claim-by-claim against the retrieved passages; if a
-claim cites a provision that was not retrieved, or a passage does not support
-it, the run is routed to legal counsel instead of returning text.
+Answers Indian labour-law questions from a statute corpus. Every drafted answer is verified claim-by-claim against the passages retrieved for that run; answers that fail verification are routed to legal counsel instead of being returned.
 
 ---
 
@@ -17,51 +11,42 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Then open **<http://localhost:8000/ui/>**.
+Open <http://localhost:8000/ui/>.
 
-From a checkout without Docker:
+Without Docker:
 
 ```bash
 uv sync
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-The web client is served by the API process itself at `/ui/`; `/` redirects
-there. There is no separate frontend build and no second server.
+The web client is served by the API process at `/ui/`; `/` redirects there. There is no separate frontend build.
 
 ---
 
-## The flagship case (§4.1)
+## Flagship case (§4.1)
 
-Paste this into the web client:
+Request:
 
 > We employ 50 people in an IT company in Karnataka. An employee engaged on a
 > written fixed-term contract of 18 months completed the contract. Is gratuity
 > payable?
 
-with headcount `50`, industry `Information Technology`, state `Karnataka`, and
-**has fixed-term employees** checked.
+Request fields: headcount `50`, industry `Information Technology`, state `Karnataka`, has fixed-term employees `true`.
 
-A correct run returns:
+Expected result:
 
-| Field | Expected |
+| Field | Value |
 |---|---|
 | `route` | `answer-with-citation` |
 | `verification.passed` | `true` |
-| citations | `css2020-s53-proviso_6` **and** `css2020-s53-proviso_2` |
+| citations | `css2020-s53-proviso_6` and `css2020-s53-proviso_2` |
 
-The two provisos are the point of the exercise. The main clause of section 53
-sets a five-year continuous-service threshold; the sixth proviso waives it for
-fixed-term employment, and the second proviso requires pro-rata payment. An
-answer citing only the main clause is wrong for this question.
+The main clause of section 53 sets a five-year continuous-service threshold. The sixth proviso waives that threshold for fixed-term employment; the second proviso requires pro-rata payment. An answer citing only the main clause is incorrect for this question.
 
-> **Which mode produces this?** The default `ANALYST_MODE=stub`. The stub
-> returns this answer for *any* question, so it demonstrates the routing,
-> citation and verification path — not that the question was understood. For
-> the latter, `ANALYST_MODE=real` is required, and that needs a model that is
-> not yet implemented (see [Configuration](#configuration)); today it escalates.
+With the default `ANALYST_MODE=stub`, the same advisory is returned for every question. This exercises the routing, citation and verification path. Reasoning about the specific question requires `ANALYST_MODE=real` with a configured model.
 
-You can also drive it from the shell:
+From the shell:
 
 ```bash
 curl -s -X POST http://localhost:8000/runs \
@@ -72,8 +57,7 @@ curl -s -X POST http://localhost:8000/runs \
 curl -s http://localhost:8000/runs/<id>
 ```
 
-`verify_api.py` runs five end-to-end checks (health, submit, poll, malformed
-rejection, metrics) against a server on port 8000:
+`verify_api.py` runs five end-to-end checks (health, submit, poll, malformed rejection, metrics) against a server on port 8000:
 
 ```bash
 uv run python verify_api.py
@@ -83,36 +67,29 @@ uv run python verify_api.py
 
 ## Configuration
 
-Two independent environment variables select behaviour.
+Two environment variables select behaviour.
 
-### `ANALYST_MODE` — which analyst runs
+### `ANALYST_MODE`
 
 | Value | Behaviour |
 |---|---|
-| `stub` (default) | Replays a fixed flagship advisory for **every** question. Keeps the test suite deterministic. |
+| `stub` (default) | Returns a fixed advisory for every question. Keeps the test suite deterministic. |
 | `real` | Runs the bounded LangGraph loop over the corpus tools. |
 
-An unrecognised value raises at startup rather than falling back to the stub —
-a deployment that believes it runs the real agent should not silently run a
-replay.
+An unrecognised value raises at startup.
 
-### `LLM_PROVIDER` — which model backs the real analyst
+### `LLM_PROVIDER`
 
 | Value | Behaviour |
 |---|---|
-| `scripted` (default) | Replays a JSON list from `LLM_SCRIPTED_RESPONSES`. Used for tests and the flagship gate. |
-| `openai` | Any OpenAI-compatible chat-completions endpoint. Set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`. |
+| `scripted` (default) | Replays a JSON list from `LLM_SCRIPTED_RESPONSES`. Used by tests. |
+| `openai` | Any OpenAI-compatible chat-completions endpoint. Requires `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`. |
 
-**Gemini is not implemented.** `get_model()` raises `ModelError` for any other
-provider (see [ADR 0001](docs/adr/0001-model-provider-seam.md)).
+Any other provider raises `ModelError`. See [ADR 0001](docs/adr/0001-model-provider-seam.md) and [ADR 0002](docs/adr/0002-openai-compatible-model-adapter.md).
 
-Consequence worth stating plainly: **with `ANALYST_MODE=real` and the default
-scripted model, every live question escalates to legal counsel.** The scripted
-model replays a fixed list and has no answer for an arbitrary question, so the
-loop ends without one and routes to counsel. That is the intended safe failure,
-and `tests/test_analyst_selection.py` pins it.
+With `ANALYST_MODE=real` and the default scripted model, every live question escalates to legal counsel: the scripted model replays a fixed list and produces no answer for an arbitrary question. `tests/test_analyst_selection.py` pins this behaviour.
 
-Running against a real endpoint:
+Running against a live endpoint:
 
 ```bash
 LLM_PROVIDER=openai \
@@ -123,27 +100,7 @@ ANALYST_MODE=real \
 uv run uvicorn app.main:app --port 8000
 ```
 
-The adapter's request shape, schema-validation and retry behaviour are covered
-by `tests/test_openai_adapter.py`. Its two live-endpoint tests skip unless
-`LLM_LIVE_URL` is set.
-
-**This path has been exercised against a live OpenAI-compatible endpoint**,
-not just mocked. What that run established:
-
-- The endpoint honours `response_format: json_object` plus the `Verdict` schema,
-  which is what makes the claim-vs-passage check possible at all.
-- The flagship question is answered from genuine reasoning, not replay: the model
-  searched, found the main provision, then reached *both* deciding provisos
-  (`proviso_6` removing the five-year bar, `proviso_2` requiring pro-rata) and the
-  Verifier confirmed the passages support the claim.
-- Out-of-corpus questions are refused. The Analyst over-claims
-  (`answer-with-citation`) and the **Verifier overrides it** to
-  `legal-counsel-review` — the safety net, not the model, is what refuses.
-
-That last point is worth dwelling on: the Analyst being overconfident is expected.
-The Verifier is the component that must not be, and this is the evidence it isn't.
-
-To run them against a live endpoint:
+Request shape, schema validation and retry behaviour are covered by `tests/test_openai_adapter.py`. Its two live-endpoint tests run only when `LLM_LIVE_URL` is set:
 
 ```bash
 LLM_LIVE_URL=https://api.example.com/v1 \
@@ -154,30 +111,33 @@ uv run pytest tests/test_openai_adapter.py -k live
 
 ---
 
-## What is actually implemented
+## Implementation status
 
-Be precise about this — the honest version is more useful than an aspirational one.
+### Implemented
 
-**Real and working:**
-
-- **Contracts** (`contracts/`) — REST schema, `AnalystResult`, route enum, status enum. Shared by both agents.
+- **Contracts** (`contracts/`) — REST schema, `AnalystResult`, route enum, status enum.
 - **API** (`app/main.py`) — async submit/poll (`POST /runs` → 202, `GET /runs/{id}`), ingestion validation with field-level errors, quarantine of rejected requests, `/health`, `/metrics`.
-- **Queue** (`app/queue.py`) — bounded in-process queue with a fixed worker pool. The queue carries run ids, not state.
-- **Verifier** (`agent/verifier.py`) — citation resolution (every cited id must be a retrieved chunk), claim-vs-passage support check, and hard triggers that force escalation.
-- **Analyst** (`agent/analyst.py`) — LangGraph loop: classify → search → derive a second query → draft with citations, with a bounded iteration count.
-- **Model seam** (`agent/model.py`) — provider protocol, scripted implementation, an OpenAI-compatible adapter, clear error for unknown providers.
-- **Injection guard** (`app/guard.py`) — instruction-override attempts are quarantined at ingestion with a `prompt_injection` field error, before any run is created.
-- **Eval set** (`tests/eval_scenarios.py`, `tests/test_eval.py`) — 20 scenarios through the real loop and the deterministic verifier.
-- **Web client** (`app/static/index.html`) — A8. Submit, poll, render route/answer/citations/escalation.
-- **Corpus pipeline & runtime retrieval** (`index/build.py`, `index/chunker.py`, `index/embedder.py`, `index/retrieve.py`) — L1, F5, D2. 621 statutory chunks embedded into persistent Chroma with `all-MiniLM-L6-v2`. Runtime `corpus_search` and `lookup_clause` query Chroma directly without artificial rank scoring.
-- **Model resilience & circuit breaker** (`agent/resilience.py`) — A5. Configurable exponential backoff retry on transient errors, 3-state circuit breaker (`CLOSED`, `OPEN`, `HALF_OPEN`), and safe fallback to `legal-counsel-review` on upstream failure.
+- **Queue** (`app/queue.py`) — bounded in-process queue with a fixed worker pool. Carries run ids.
+- **Verifier** (`agent/verifier.py`) — citation resolution, claim-vs-passage support check, hard triggers that force escalation.
+- **Analyst** (`agent/analyst.py`) — LangGraph loop: classify → search → derive a second query → draft with citations, bounded iteration count.
+- **Model seam** (`agent/model.py`) — provider protocol, scripted implementation, OpenAI-compatible adapter, error on unknown providers.
+- **Model resilience** (`agent/resilience.py`) — exponential backoff retry on transient errors, three-state circuit breaker (`CLOSED`, `OPEN`, `HALF_OPEN`), fallback to `legal-counsel-review` on upstream failure.
+- **Injection guard** (`app/guard.py`) — instruction-override attempts are quarantined at ingestion with a `prompt_injection` field error, before a run is created.
+- **Eval set** (`tests/eval_scenarios.py`, `tests/test_eval.py`) — 20 scenarios through the loop and the deterministic verifier.
+- **Web client** (`app/static/index.html`) — submit, poll, render route/answer/citations/escalation.
+- **Corpus pipeline and retrieval** (`index/build.py`, `index/chunker.py`, `index/embedder.py`, `index/retrieve.py`) — 621 statutory chunks embedded with `all-MiniLM-L6-v2` into a persistent Chroma collection. `corpus_search` and `lookup_clause` query Chroma at runtime.
+- **Compose stack** — four services: API, background worker, queue broker, model stub.
 
-**Cut deliberately** (see PLAN.md for the reasoning):
+### Not implemented
 
-- Trace visualisation in Jaeger/Grafana. Run reconstruction is via structured logs with a correlation ID.
-- Locust load testing and measured p95. The SLO is declared as p95 latency <= 2,500 ms (end-to-end async execution under nominal load), tracked via correlation IDs and step latency stats. Dedicated load testing measurement was cut in favour of §4.1 depth.
-- `--scale` measurement, response caching, the feedback endpoint, toxicity detection.
-- Gemini support, and any live-model verification (see above).
+- Trace visualisation in Jaeger or Grafana. Run reconstruction uses structured logs with a correlation ID.
+- Locust load testing and measured p95. The declared SLO is p95 end-to-end latency ≤ 2,500 ms under nominal load.
+- `--scale` measurement.
+- Response caching.
+- Feedback endpoint.
+- Toxicity detection.
+- Gemini support.
+- Automated live-model verification; the live tests are opt-in.
 
 ---
 
@@ -209,9 +169,7 @@ POST /runs ──► validation ──► quarantine (400, no run)
                         └──────────► GET /runs/{id} ◄──────────┘
 ```
 
-The analyst never decides its own answer is safe. The verifier does, and it can
-overrule the analyst in either direction — pass a supported answer through, or
-force an escalation.
+The analyst produces a draft. The verifier decides whether it is returned or escalated, and can overrule the analyst in either direction.
 
 ---
 
@@ -221,33 +179,25 @@ force an escalation.
 uv run pytest
 ```
 
-192 tests passed, 7 skipped. The skips are 5 eval scenarios where verification outcome is intentionally unspecified, and 2 endpoint tests in `test_openai_adapter.py` that gate on `LLM_LIVE_URL` alone. Coverage by module:
+192 tests passed, 7 skipped. The skips are 5 eval scenarios whose verification outcome is intentionally unspecified, and 2 endpoint tests in `test_openai_adapter.py` that require `LLM_LIVE_URL`.
 
-| File | What it pins |
+| File | Coverage |
 |---|---|
-| `tests/test_api.py` | Endpoints, validation, injection quarantine, queue, verification, metrics, the UI mount |
-| `tests/test_circuit_breaker.py` | A5: Exponential backoff retries, 3-state circuit breaker, fast-fail on OPEN, manual trip trigger |
+| `tests/test_api.py` | Endpoints, validation, injection quarantine, queue, verification, metrics, UI mount |
+| `tests/test_circuit_breaker.py` | Backoff retries, three-state circuit breaker, fast-fail on OPEN, manual trip |
 | `tests/test_verifier.py` | Citation resolution, claim support, hard triggers |
-| `tests/test_analyst.py` | The bounded loop, derived second query, model failure → escalation |
+| `tests/test_analyst.py` | Bounded loop, derived second query, model failure → escalation |
 | `tests/test_analyst_selection.py` | `ANALYST_MODE` selection and the stub/real difference |
-| `tests/test_model.py` | Provider protocol and the unknown-provider error |
-| `tests/test_openai_adapter.py` | Request shape, config errors, malformed JSON, schema retry, live endpoint (skipped) |
-| `tests/test_guard.py` | Injection patterns, and the benign phrasings they must not catch |
-| `tests/test_eval.py` | The 20-scenario eval set — see below |
+| `tests/test_model.py` | Provider protocol and unknown-provider error |
+| `tests/test_openai_adapter.py` | Request shape, config errors, malformed JSON, schema retry, live endpoint |
+| `tests/test_guard.py` | Injection patterns and the benign phrasings they must not catch |
+| `tests/test_eval.py` | The 20-scenario eval set |
 
-### The eval set
+### Eval set
 
-`tests/eval_scenarios.py` holds twenty scenarios: six answerable from section 53,
-four flagship-shaped, four outside the corpus that must escalate, three
-repealed-law traps, and three prompt-injection attempts quarantined at
-ingestion. Each carries its own scripted model transcript, so the LangGraph
-loop, tool dispatch, citation resolution and deterministic verifier all run
-for real — only the model's judgement is scripted.
+`tests/eval_scenarios.py` defines 20 scenarios: six answerable from section 53, four flagship-shaped, four outside the corpus that must escalate, three repealed-law traps, and three prompt-injection attempts quarantined at ingestion. Each carries a scripted model transcript, so the LangGraph loop, tool dispatch, citation resolution and deterministic verifier execute for real.
 
-It is a **routing and grounding benchmark, not a legal-accuracy one.** The
-corpus is eight chunks, so most of the variation is in question phrasing and
-expected route. Scenarios in `ESCALATE` are expected to be hard; if they start
-passing trivially, the verifier has stopped working.
+The set benchmarks routing and grounding. It does not measure legal accuracy. Most variation is in question phrasing and expected route; scenarios in `ESCALATE` are expected to fail verification.
 
 The flagship loop can be exercised without the API:
 
@@ -260,50 +210,27 @@ uv run python -m agent.analyst --scripted
 ## Repository layout
 
 ```
-agent/        analyst (LangGraph), verifier, model seam, tools
+agent/        analyst (LangGraph), verifier, model seam, resilience, tools
 app/          FastAPI service, queue, store, pipeline wiring, web client
-contracts/    shared schemas — the interface both agents agree on
+contracts/    shared schemas
 index/        chunker, embedder, Chroma build, retrieval
 corpus/       source PDFs (Code on Social Security 2020, POSH 2013, Gratuity Act 1972)
-docs/         brief, glossary, ADRs
+docs/         brief, glossary, runbook, incident log, ADRs
 tests/        the suite
+eval/         prompt-variant comparison
+load_tests/   Locust load test
 ```
 
-The Payment of Gratuity Act 1972 sits in the corpus **deliberately**, marked
-`repealed`. It is what most material online still describes, and the flagship
-case depends on the contrast between it and the 2020 Code.
+The Payment of Gratuity Act 1972 is included in the corpus marked `repealed`. The flagship case depends on the contrast between it and the 2020 Code.
 
 ---
 
 ## Known limitations
 
-1. **The live model path is verified by hand, not by CI.** The `openai` adapter
-   has been run against a real OpenAI-compatible endpoint and the flagship,
-   escalation and repeal-trap cases all behaved correctly (see the
-   `LLM_PROVIDER` section). But the live tests skip unless `LLM_LIVE_URL` is
-   set, so nothing in `uv run pytest` exercises them — a regression in the
-   adapter or in the endpoint's JSON-mode behaviour would not be caught
-   automatically. This is also the only configuration where the model is
-   actually reasoning rather than replaying.
-2. **Verification checks soundness, not completeness.** The Verifier asks
-   whether the cited passages support the claim. It cannot ask whether the
-   agent retrieved *enough* — it never sees the corpus, only the chunks the
-   agent cited. Consequence, measured against a live model on the flagship
-   question: if the agent fetches `main` and `proviso_1` but never
-   `proviso_6`, it can answer "no gratuity is payable, five years' service is
-   required" and **pass verification**, because those two passages really do
-   say that. The answer is supported and still wrong. On the same question
-   across repeated live runs, one run produced both deciding provisos and
-   passed, one produced the incomplete pair and passed, and one was refused by
-   the claim-vs-passage check. So `passed: true` means "the reasoning is
-   grounded in what it read", **not** "the answer is correct".
-   The structural fix is to make completeness checkable — e.g. requiring that
-   a section's deciding provisos be retrieved before an answer may cite that
-   section — and it is not implemented.
-2. **Retrieval is not semantic.** See above. The corpus tool's ranking is
-   hand-tuned so that a generic search misses the deciding provisos — which is
-   what makes `lookup_clause` load-bearing, but it is not a retrieval system.
-3. **State is in-process.** Runs, the queue, and metrics live in memory. Restart
-   loses them, and the service does not scale past one process.
-4. **`status` on chunks is hand-assigned.** Nothing derives in-force/repealed
-   from the documents themselves.
+1. **Verification checks soundness, not completeness.** The verifier asks whether cited passages support the claim. It does not ask whether the agent retrieved enough — it sees only the chunks the agent cited, not the corpus. If the agent retrieves `main` and `proviso_1` but not `proviso_6`, an answer stating that five years' service is required passes verification, because those passages do support it. `verification.passed: true` means the reasoning is grounded in the retrieved text, not that the answer is correct. A structural fix — requiring a section's deciding provisos to be retrieved before an answer may cite that section — is not implemented.
+
+2. **State is in-process.** Runs, queue and metrics are held in memory. A restart loses them, and the service does not scale past one process.
+
+3. **Chunk `status` is hand-assigned.** In-force/repealed status is declared in the build configuration, not derived from the documents.
+
+4. **The live model path is not covered by CI.** The live tests require `LLM_LIVE_URL` and skip otherwise, so a regression in the adapter or in the endpoint's JSON-mode behaviour would not be caught automatically.

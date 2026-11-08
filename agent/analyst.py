@@ -394,6 +394,7 @@ def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
         ),
         prompt_version=state.get("prompt_version") or PROMPT_VERSION,
         correlation_id=correlation_id,
+        stop_reason=stop_reason,
     )
     return {"claims": claims, "route": route, "answer": answer, "result": result}
 

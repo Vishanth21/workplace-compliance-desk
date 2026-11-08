@@ -53,6 +53,15 @@ class RunView(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     verification: VerificationOutcome | None = None
     error: str | None = None
+    stop_reason: str | None = Field(
+        default=None,
+        description=(
+            "Set when the analyst loop stopped without answering, e.g. "
+            "'model_error: ...'. A run can be an escalation to counsel *and* "
+            "carry this; reading it is how a provider failure is told apart "
+            "from a deliberate escalation."
+        ),
+    )
 
 
 class FieldError(BaseModel):

@@ -161,6 +161,63 @@ class ScriptedModel:
 # ---------------------------------------------------------------------------
 
 
+def _schema_instruction(response_schema: type[BaseModel]) -> str:
+    """The output-format block that makes JSON mode honour the schema.
+
+    JSON mode alone only guarantees *some* JSON object. Three things are
+    needed to get the shape right, each verified against a real endpoint:
+
+    * The block must be part of the *first* system message, not a separate
+      one. A second system message is ignored whether it comes before or
+      after the persona prompt -- and when it comes first it also displaces
+      that prompt, so the agent stops calling its tools and answers from
+      memory. Merging keeps one system message and both instructions live.
+    * The required keys must be named in prose, not only in the schema. A
+      model that reads a bare schema substitutes its own field names.
+    * For an agent whose schema has an ``action`` field, the block has to say
+      that tool use precedes answering. Otherwise ``action: "answer"`` is the
+      easy way to satisfy the format, and retrieval is skipped entirely.
+
+    Validation downstream is still the safety net; this only raises the hit
+    rate.
+    """
+    schema = response_schema.model_json_schema()
+    keys = list(schema.get("properties") or {})
+    lines = [
+        "OUTPUT FORMAT -- applies to this and every later turn.",
+        "Reply with exactly one JSON object: no prose, no markdown, no code fence.",
+        "Include every one of these keys: " + ", ".join(keys) + ".",
+    ]
+    if "action" in keys:
+        lines.append(
+            "If the question needs a tool before you can answer, set action to "
+            "'tool' and fill tool and arguments; do not answer from memory."
+        )
+    lines.append(
+        "It must conform to this JSON Schema:\n"
+        + json.dumps(schema, separators=(",", ":"))
+    )
+    return "\n".join(lines)
+
+
+def _with_schema_instruction(
+    messages: list[Message], response_schema: type[BaseModel]
+) -> list[Message]:
+    """Fold the schema instruction into the existing system message.
+
+    A separate system message does not work: it is either ignored (when the
+    persona prompt precedes it) or overrides the persona (when it leads), and
+    the latter silently turns a tool-using agent into one that answers from
+    memory. Merging is the only arrangement verified to satisfy both.
+    """
+    instruction = _schema_instruction(response_schema)
+    if messages and messages[0].get("role") == "system":
+        first = dict(messages[0])
+        first["content"] = (first.get("content") or "") + "\n\n" + instruction
+        return [first, *messages[1:]]
+    return [{"role": "system", "content": instruction}, *messages]
+
+
 class OpenAIModel:
     """Talks to any OpenAI-compatible ``/chat/completions`` endpoint.
 
@@ -226,25 +283,13 @@ class OpenAIModel:
             body["temperature"] = temperature
 
         if response_schema is not None:
-            # JSON mode plus the schema in the prompt. Function calling would
-            # also work, but both call sites (Step, Verdict) are flat objects
-            # and several OpenAI-compatible servers implement JSON mode and
-            # not tools. The schema instruction is what makes the difference
-            # in practice; validation below is what makes it safe.
+            # JSON mode plus the schema folded into the system message.
+            # Function calling would also work, but both call sites (Step,
+            # Verdict) are flat objects and several OpenAI-compatible servers
+            # implement JSON mode and not tools. Validation below is what
+            # makes it safe; the instruction only raises the hit rate.
             body["response_format"] = {"type": "json_object"}
-            schema_json = json.dumps(
-                response_schema.model_json_schema(), separators=(",", ":")
-            )
-            body["messages"] = [
-                *messages,
-                {
-                    "role": "system",
-                    "content": (
-                        "Reply with a single JSON object and nothing else. "
-                        "It must conform to this JSON Schema:\n" + schema_json
-                    ),
-                },
-            ]
+            body["messages"] = _with_schema_instruction(messages, response_schema)
         return body
 
     def complete(

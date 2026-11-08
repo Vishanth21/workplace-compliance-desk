@@ -48,6 +48,14 @@ class RunTrace(BaseModel):
     total_cost_usd: float = 0.0
     citations: list[str] = Field(default_factory=list)
     verification: VerificationOutcome | None = None
+    stop_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the analyst loop stopped without answering, if it did. "
+            "Without this a model failure and a deliberate escalation to "
+            "counsel produce identical traces."
+        ),
+    )
     created_at: str
     completed_at: str | None = None
 

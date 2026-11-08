@@ -81,7 +81,7 @@ primary production failure modes (Requirement D8).
    ```bash
    curl -s http://localhost:8000/metrics | grep compliance_index
    ```
-   Confirm whether `compliance_index_chunks` is below expected (expected: 621 chunks across CSS 2020, POSH 2013, and PGA 1972).
+   Confirm whether `compliance_index_chunks` is below expected (expected: 618 chunks across CSS 2020, POSH 2013, and PGA 1972 — css2020 470, posh 72, pga1972 76). A value of `8` means the fallback corpus in `index/retrieve.py` is in use, i.e. no built index was found.
 
 2. **Check physical index directory:**
    ```bash
@@ -104,7 +104,7 @@ primary production failure modes (Requirement D8).
    python -m index.build --force
    ```
    Output must conclude with:
-   `done: 621 chunks in .../index/store`
+   `done: 618 chunks in .../index/store`
 
 2. **Restart services:**
    Restart API and background worker so open Chroma handles re-bind to the refreshed persistent store:
@@ -119,7 +119,7 @@ primary production failure modes (Requirement D8).
    ```
    Output must show:
    ```prometheus
-   compliance_index_chunks 621
+   compliance_index_chunks 618
    compliance_index_freshness_seconds <small_number>
    ```
 

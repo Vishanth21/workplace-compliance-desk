@@ -140,6 +140,11 @@ async def run_pipeline(
         # 3. Write RunView
         run_view.verification = outcome
         run_view.route = outcome.final_route
+        # A loop that stopped without answering says why. An escalation to
+        # counsel caused by a provider failure looks identical to a deliberate
+        # one without this, which is exactly how a broken adapter stayed
+        # invisible.
+        run_view.stop_reason = analyst_result.stop_reason
 
         if outcome.passed:
             # Verified answer: Ground citations ONLY for surviving claims
@@ -230,6 +235,7 @@ async def run_pipeline(
             total_cost_usd=round(total_cost, 5),
             citations=[c.chunk_id for c in run_view.citations],
             verification=outcome,
+            stop_reason=analyst_result.stop_reason,
             created_at=created_at,
             completed_at=datetime.now(UTC).isoformat(timespec="seconds"),
         )

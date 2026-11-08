@@ -26,6 +26,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
+from agent.analyst import Step
 from agent.model import Model, ModelError, OpenAIModel, get_model
 
 
@@ -155,7 +156,7 @@ def test_no_auth_header_when_no_key(monkeypatch, endpoint):
     assert "Authorization" not in calls[0]["headers"]
 
 
-def test_structured_call_requests_json_object_and_appends_schema(endpoint):
+def test_structured_call_requests_json_object_and_merges_schema(endpoint):
     model, calls, replies = endpoint
     replies.append(FakeResponse(200, chat_reply('{"supported": true, "reason": "ok"}')))
     model.complete(
@@ -165,11 +166,67 @@ def test_structured_call_requests_json_object_and_appends_schema(endpoint):
     body = calls[0]["json"]
     assert body["response_format"] == {"type": "json_object"}
     # The schema must reach the model, or JSON mode only guarantees *some* JSON.
-    last = body["messages"][-1]
-    assert "JSON Schema" in last["content"]
-    assert "supported" in last["content"]
-    # The caller's messages are preserved, not replaced.
-    assert body["messages"][0]["content"] == "verify"
+    # It goes in the *first* system message: a separate one is ignored after a
+    # persona prompt, and displaces it before one -- which silently stops an
+    # agent from calling its tools.
+    first = body["messages"][0]
+    assert first["role"] == "system"
+    assert "JSON Schema" in first["content"]
+    assert "supported" in first["content"]
+    # The expected keys are named in prose; a bare schema is not enough.
+    assert "Include every one of these keys:" in first["content"]
+    # The caller's message is preserved, after the system turn.
+    assert body["messages"][1]["content"] == "verify"
+    assert len(body["messages"]) == 2
+
+
+def test_structured_call_merges_into_existing_system_prompt(endpoint):
+    model, calls, replies = endpoint
+    replies.append(FakeResponse(200, chat_reply('{"supported": true, "reason": "ok"}')))
+    model.complete(
+        [
+            {"role": "system", "content": "You are a compliance analyst."},
+            {"role": "user", "content": "verify"},
+        ],
+        response_schema=Verdict,
+    )
+
+    body = calls[0]["json"]
+    # One system message, not two: the persona is kept and the schema joined to
+    # it. A second system message would override the persona.
+    assert len(body["messages"]) == 2
+    merged = body["messages"][0]["content"]
+    assert merged.startswith("You are a compliance analyst.")
+    assert "Include every one of these keys:" in merged
+    assert body["messages"][1]["content"] == "verify"
+
+
+def test_tool_step_schema_tells_the_model_to_call_tools_first(endpoint):
+    """The ``action`` schema must not make answering the easy path.
+
+    Without this the model satisfies the format with action="answer" and skips
+    retrieval entirely -- a live failure that unit tests with a scripted model
+    cannot show.
+    """
+    model, calls, replies = endpoint
+    replies.append(
+        FakeResponse(
+            200,
+            chat_reply(
+                '{"action": "tool", "tool": "corpus_search", '
+                '"arguments": {"query": "gratuity"}}'
+            ),
+        )
+    )
+    model.complete(
+        [{"role": "system", "content": "You are a compliance analyst."},
+         {"role": "user", "content": "Is gratuity payable?"}],
+        response_schema=Step,
+    )
+
+    first = calls[0]["json"]["messages"][0]["content"]
+    assert "set action to 'tool'" in first
+    assert "do not answer from memory" in first
 
 
 def test_unstructured_call_does_not_request_json(endpoint):

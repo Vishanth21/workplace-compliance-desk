@@ -74,6 +74,15 @@ class AnalystResult(BaseModel):
     claims: list[Claim] = Field(default_factory=list)
     retrieved_chunks: list[Chunk] = Field(default_factory=list)
     loop: LoopStats = Field(default_factory=LoopStats)
+    stop_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the loop ended when it did not end by answering, e.g. "
+            "'model_error: ModelError: ...', 'max_steps', 'no_answer'. None "
+            "means the loop answered normally. Carried so a provider failure "
+            "is distinguishable from a deliberate escalation."
+        ),
+    )
     prompt_version: str = Field(description="Which prompt version produced this.")
     correlation_id: str = Field(description="Ties every step of the run together.")
 

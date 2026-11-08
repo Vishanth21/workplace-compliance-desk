@@ -4,6 +4,12 @@ import asyncio
 import logging
 import signal
 
+# Load .env before the pipeline is imported: it builds the analyst at import
+# time from ANALYST_MODE. A no-op under pytest -- see app/env.py.
+from app.env import load_env
+
+load_env()
+
 from app.queue import WORKER_COUNT, start_workers, stop_workers
 
 logging.basicConfig(

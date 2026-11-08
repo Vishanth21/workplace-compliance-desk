@@ -13,6 +13,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
+# Load .env before anything reads configuration. app.pipeline builds the
+# analyst at import time from ANALYST_MODE, so this must run before the project
+# imports below. A no-op under pytest -- see app/env.py.
+from .env import load_env
+
+load_env()
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse

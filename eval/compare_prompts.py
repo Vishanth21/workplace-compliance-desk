@@ -64,7 +64,7 @@ def evaluate_variant(variant_name: str) -> dict[str, float | int]:
         if not (sc.forbidden_citations & cited):
             clean_citations += 1
 
-        if sc.required_citations & flagship_provisos:
+        if flagship_provisos.issubset(sc.required_citations):
             flagship_count += 1
             if flagship_provisos.issubset(cited):
                 flagship_provisos_hit += 1

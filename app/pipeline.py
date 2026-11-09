@@ -135,7 +135,9 @@ async def run_pipeline(
         # 2. Agent 2: Verifier
         active_verifier = verifier_override or verifier
         with trace_span("agent.verifier", {"correlation_id": correlation_id}):
-            outcome: VerificationOutcome = active_verifier.verify(analyst_result)
+            outcome: VerificationOutcome = await asyncio.to_thread(
+                active_verifier.verify, analyst_result
+            )
 
         # 3. Write RunView
         run_view.verification = outcome

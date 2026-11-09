@@ -460,7 +460,7 @@ async def test_run_trace_reconstruction():
         assert trace["run_id"] == run_id
         assert trace["prompt_version"] == "analyst-1"
         assert len(trace["steps"]) >= 2
-        assert trace["steps"][0]["action"] == "tool"
+        assert trace["steps"][0]["action"] == "retrieved"
         assert trace["steps"][-1]["action"] == "answer"
         assert trace["total_latency_ms"] > 0
         assert trace["verification"]["passed"] is True

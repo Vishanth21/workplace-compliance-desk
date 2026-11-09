@@ -185,18 +185,32 @@ async def run_pipeline(
         run_latencies_s.append(elapsed_ms / 1000.0)
 
         # 4. Reconstruct Run Trajectory (Requirement D5)
+        #
+        # The Analyst collects retrieved_chunks as a flat set; which tool was
+        # called with which arguments is not recoverable here. The entries
+        # below are therefore *reconstruction hints*: `action="retrieved"`
+        # marks that a passage came back, not that a call was recorded.
+        # `tool=None` and `arguments={}` mark that the tool name and arguments
+        # are unknown. The authoritative call count is `loop.tool_calls`,
+        # set on the trace below.
+        #
+        # Full fix: see docs/incident-log.md INC-2026-11-09-04 — capture real
+        # StepRecords in agent/analyst.py and thread them through AnalystResult.
         step_records: list[StepRecord] = []
         for idx, chunk in enumerate(analyst_result.retrieved_chunks):
-            tool_name = "corpus_search" if "main" in chunk.part else "lookup_clause"
             step_records.append(
                 StepRecord(
                     step_index=idx + 1,
-                    action="tool",
-                    tool=tool_name,
-                    arguments={"section": chunk.section, "doc": chunk.doc},
+                    action="retrieved",
+                    tool=None,
+                    arguments={},
                     tool_output_summary=chunk.text[:120],
                     passages_retrieved=[chunk.chunk_id],
-                    latency_ms=round(analyst_result.loop.wall_clock_ms / max(1, analyst_result.loop.steps), 1),
+                    latency_ms=round(
+                        analyst_result.loop.wall_clock_ms
+                        / max(1, analyst_result.loop.steps),
+                        1,
+                    ),
                     estimated_prompt_tokens=150,
                     estimated_completion_tokens=40,
                     estimated_cost_usd=0.00015,
@@ -209,9 +223,19 @@ async def run_pipeline(
                 action="answer",
                 tool=None,
                 arguments={},
-                tool_output_summary=(analyst_result.draft_answer[:120] if analyst_result.draft_answer else None),
-                passages_retrieved=[c for cl in analyst_result.claims for c in cl.citations],
-                latency_ms=round(analyst_result.loop.wall_clock_ms / max(1, analyst_result.loop.steps), 1),
+                tool_output_summary=(
+                    analyst_result.draft_answer[:120]
+                    if analyst_result.draft_answer
+                    else None
+                ),
+                passages_retrieved=[
+                    c for cl in analyst_result.claims for c in cl.citations
+                ],
+                latency_ms=round(
+                    analyst_result.loop.wall_clock_ms
+                    / max(1, analyst_result.loop.steps),
+                    1,
+                ),
                 estimated_prompt_tokens=350,
                 estimated_completion_tokens=120,
                 estimated_cost_usd=0.00035,
@@ -229,8 +253,8 @@ async def run_pipeline(
             route=outcome.final_route,
             answer=run_view.answer,
             steps=step_records,
-            total_steps=analyst_result.loop.steps or len(step_records),
-            total_tool_calls=analyst_result.loop.tool_calls or max(0, len(step_records) - 1),
+            total_steps=analyst_result.loop.steps,
+            total_tool_calls=analyst_result.loop.tool_calls,
             total_latency_ms=round(elapsed_ms, 1),
             total_cost_usd=round(total_cost, 5),
             citations=[c.chunk_id for c in run_view.citations],

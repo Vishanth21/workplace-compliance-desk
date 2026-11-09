@@ -17,7 +17,7 @@ class StepRecord(BaseModel):
     """Reconstructed telemetry for one execution step in the analyst loop."""
 
     step_index: int
-    action: str  # "tool" or "answer"
+    action: str  # "retrieved", "tool", or "answer"
     tool: str | None = None
     arguments: dict[str, Any] = Field(default_factory=dict)
     tool_output_summary: str | None = None

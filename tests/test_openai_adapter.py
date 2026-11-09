@@ -26,8 +26,10 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from agent.analyst import Step
+from agent.analyst import Action, Step
 from agent.model import Model, ModelError, OpenAIModel, get_model
+from agent.prompts import get_prompt_text
+from agent.tools import TOOL_NAMES
 
 
 class Verdict(BaseModel):
@@ -366,3 +368,46 @@ def test_live_structured_call():
     )
     assert isinstance(verdict, Verdict)
     assert verdict.supported is True
+
+
+@pytest.mark.skipif(
+    not os.environ.get("LLM_LIVE_URL"),
+    reason="set LLM_LIVE_URL to run against a real endpoint",
+)
+def test_live_structured_step_call():
+    """The analyst's schema, against the real endpoint: the one CI missed."""
+    m = OpenAIModel(
+        base_url=os.environ["LLM_LIVE_URL"],
+        model=os.environ.get("LLM_MODEL", "your-model-name"),
+        api_key=os.environ.get("OPENAI_API_KEY"),
+    )
+    step = m.complete(
+        [
+            {"role": "system", "content": get_prompt_text("analyst-1")[1]},
+            {"role": "user", "content": "Is gratuity payable to a fixed-term employee?"},
+        ],
+        response_schema=Step,
+    )
+    assert isinstance(step, Step)
+    assert step.action in {Action.TOOL, Action.ANSWER}
+    if step.action == Action.TOOL:
+        assert step.tool in TOOL_NAMES
+
+def test_markdown_fenced_reply_is_parsed(endpoint):
+    """Gemini 3 wraps JSON in ``` fences; parse must strip them.
+
+    Without stripping, a correct positive verdict reads as a parse error and
+    the verifier treats it as "unsupported", escalating a valid answer.
+    """
+    model, _, replies = endpoint
+    replies.append(
+        FakeResponse(
+            200,
+            chat_reply(
+                '```\n{"supported": true, "reason": "quoted clause"}\n```'
+            ),
+        )
+    )
+    out = model.complete([{"role": "user", "content": "v"}], response_schema=Verdict)
+    assert out.supported is True
+    assert out.reason == "quoted clause"

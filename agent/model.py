@@ -218,12 +218,57 @@ def _with_schema_instruction(
     return [{"role": "system", "content": instruction}, *messages]
 
 
+def _strip_markdown_fences(content: str) -> str:
+    """Remove ``` fences some models wrap JSON in.
+
+    Gemini 3 returns valid JSON wrapped in markdown code fences. The trailing
+    fence parses as "trailing characters" in ``model_validate_json``, and the
+    verifier reads the parse error as an unsupported claim -- a false negative
+    on a correct positive verdict.
+    """
+    stripped = content.strip()
+    if not stripped.startswith("```"):
+        return content
+    first_newline = stripped.find("\n")
+    if first_newline == -1:
+        return content
+    stripped = stripped[first_newline + 1:]
+    if stripped.rstrip().endswith("```"):
+        stripped = stripped.rstrip()[:-3].rstrip()
+    return stripped
+
+
+#: Google's sentinel for callers that cannot carry a real thought_signature
+#: through the OpenAI wire format.
+#: https://ai.google.dev/gemini-api/docs/thought-signatures
+_GEMINI_THOUGHT_SIG_BYPASS = "skip_thought_signature_validator"
+
+
+def _patch_gemini_thought_signatures(body: dict[str, Any], base_url: str) -> None:
+    """Stamp the bypass signature onto replayed Gemini tool calls.
+
+    Gemini rejects a replayed functionCall without a thought_signature
+    (HTTP 400). The OpenAI chat-completions format has no field for it, so an
+    adapter round-tripping ``tool_calls`` drops it and turn 2 dies.
+    """
+    if "generativelanguage.googleapis.com" not in base_url:
+        return
+    for message in body.get("messages", []):
+        if message.get("role") != "assistant":
+            continue
+        for call in message.get("tool_calls") or []:
+            call.setdefault(
+                "extra_content",
+                {"google": {"thought_signature": _GEMINI_THOUGHT_SIG_BYPASS}},
+            )
+
+
 class OpenAIModel:
     """Talks to any OpenAI-compatible ``/chat/completions`` endpoint.
 
-    Covers OpenAI itself, Azure-compatible gateways, and local inference servers
-    (vLLM, llama.cpp, LM Studio). Nothing in the class is specific to one
-    vendor: the base URL is configuration.
+    Covers OpenAI itself, Azure-compatible gateways, Gemini's OpenAI-compat
+    endpoint, and local inference servers (vLLM, llama.cpp, LM Studio). Nothing
+    in the class is specific to one vendor: the base URL is configuration.
 
     Configuration, read at call time so a process can be reconfigured without
     a rebuild:
@@ -290,6 +335,8 @@ class OpenAIModel:
             # makes it safe; the instruction only raises the hit rate.
             body["response_format"] = {"type": "json_object"}
             body["messages"] = _with_schema_instruction(messages, response_schema)
+
+        _patch_gemini_thought_signatures(body, self.base_url)
         return body
 
     def complete(
@@ -337,6 +384,7 @@ class OpenAIModel:
         if response_schema is None:
             return content
 
+        content = _strip_markdown_fences(content)
         try:
             return response_schema.model_validate_json(content)
         except Exception as exc:  # noqa: BLE001 - re-raised with the payload

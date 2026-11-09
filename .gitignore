@@ -10,4 +10,4 @@ __pycache__/
 .uv-verify/
 
 # generated Chroma database
-index/store/
+index/store/miniproject.egg-info/

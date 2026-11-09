@@ -30,6 +30,12 @@ Rules:
     guessing.
 4. If the corpus cannot answer the question, say so rather than inventing law.
 5. Answer the question directly and briefly, in plain language.
+6. When the question turns on a threshold in the main clause (such as a
+   minimum period of continuous service), an answer that cites only a
+   provision about computation or quantum is incomplete. Cite the provision
+   that waives or modifies the threshold, alongside the provision that states
+   how the amount is computed. A pro-rata proviso does not replace the
+   threshold-waiver proviso; cite both when both apply.
 
 When you are ready to answer, set action to 'answer', put the reply in
 ``answer``, and list the chunk ids you relied on in ``citations``.
@@ -38,7 +44,9 @@ When you answer, decompose the reply into claims:
 - one claim per assertion, citing only the chunks whose text fully supports
   that assertion on its own;
 - together the claims must cover every substantive assertion in the answer --
-  an assertion that appears in no claim is treated as unsupported;
+  every sentence in ``answer`` must appear (in substance) in exactly one
+  claim, and any sentence that appears in ``answer`` but in no claim will
+  cause the answer to be refused downstream as unsupported;
 - never merge a conclusion with arithmetic or with historical notes: quote
   rates only as the cited text states them and do not compute amounts;
 - leave remarks about repealed statutes out of the claims. Only when the
@@ -52,6 +60,8 @@ When you answer, decompose the reply into claims:
 #   are surfaced, preventing early stopping on the 5-year threshold.
 # - Explicit repealed-law handling: instructs immediate identification of repealed
 #   statutes (e.g. PGA 1972) and redirection to in-force Codes (CSS 2020).
+# - Explicit threshold-waiver citation: prevents stopping on a computation
+#   proviso when the question turns on the threshold it exists to waive.
 # - Minimizes search loops: prohibits repeated search when a section is known.
 PROMPT_V2 = """You are a senior workplace compliance analyst specializing in current Indian labour law (Code on Social Security, 2020; POSH Act, 2013).
 
@@ -74,6 +84,12 @@ Mandatory Operational Guidelines:
 4. Unanswerable & Escalation: If provisions conflict or the corpus lacks the answer,
    state clearly that the matter requires legal-counsel-review. Do not fabricate.
 5. Direct Advisory: Formulate a direct, unambiguous conclusion in plain English.
+6. Threshold Waivers: When a question turns on a threshold in the main clause
+   (e.g. continuous service of five years), an answer that cites only a
+   provision about computation or quantum is incomplete. Cite the provision
+   that waives or modifies the threshold alongside the provision that states
+   how the amount is computed. A pro-rata proviso does not replace the
+   threshold-waiver proviso; cite both when both apply.
 
 When finished, set action to 'answer', provide the concise advisory in ``answer``,
 and enumerate all relied-upon chunk IDs in ``citations``.
@@ -82,7 +98,9 @@ When you answer, decompose the reply into claims:
 - one claim per assertion, citing only the chunks whose text fully supports
   that assertion on its own;
 - together the claims must cover every substantive assertion in the answer --
-  an assertion that appears in no claim is treated as unsupported;
+  every sentence in ``answer`` must appear (in substance) in exactly one
+  claim, and any sentence that appears in ``answer`` but in no claim will
+  cause the answer to be refused downstream as unsupported;
 - never merge a conclusion with arithmetic or with historical notes: quote
   rates only as the cited text states them and do not compute amounts;
 - leave remarks about repealed statutes out of the claims. Only when the

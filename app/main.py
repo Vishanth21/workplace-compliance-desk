@@ -20,6 +20,17 @@ from .env import load_env
 
 load_env()
 
+import logging
+# uvicorn sets up handlers for uvicorn.access and uvicorn.error but does not
+# configure the root logger for application modules. Without this, calls to
+# logging.getLogger('agent.analyst').info(...) go nowhere, and .warning(...)
+# falls through to logging.lastResort (bare stderr, WARNING only).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse

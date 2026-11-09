@@ -155,12 +155,18 @@ class Verifier:
         # If citation resolution failed for any claim, fail immediately without model call
         if failed_claim_indices:
             unique_failures = sorted(list(set(failed_claim_indices)))
+            logger.info(
+                "verifier stage1: failed claims=%s reasons=%s",
+                unique_failures, failure_reasons,
+            )
             return VerificationOutcome(
                 passed=False,
                 final_route=Route.LEGAL_COUNSEL,
                 reason="Citation resolution failed: " + "; ".join(failure_reasons),
                 failed_claims=unique_failures,
             )
+
+        logger.info("verifier stage1: all claims resolved to retrieved chunks")
 
         # --- Stage 2: Claim-vs-Passage Model Check ---
         if self.model is not None:
@@ -176,12 +182,18 @@ class Verifier:
 
             if model_failed_indices:
                 unique_failures = sorted(list(set(model_failed_indices)))
+                logger.info(
+                    "verifier stage2: failed claims=%s reasons=%s",
+                    unique_failures, model_reasons,
+                )
                 return VerificationOutcome(
                     passed=False,
                     final_route=Route.LEGAL_COUNSEL,
                     reason="Passage check failed: " + "; ".join(model_reasons),
                     failed_claims=unique_failures,
                 )
+
+            logger.info("verifier stage2: all claims support-checked")
 
         # All checks passed
         return VerificationOutcome(

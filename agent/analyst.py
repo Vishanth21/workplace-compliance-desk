@@ -17,6 +17,7 @@ network and no API key.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -33,6 +34,8 @@ from contracts import AnalystResult, Chunk, Claim, LoopStats, Route
 from .model import Message, Model, ScriptedModel, get_model
 from .prompts import DEFAULT_PROMPT_VERSION, PROMPT_VARIANTS, get_prompt_text
 from .tools import TOOL_NAMES, dispatch, schemas
+
+logger = logging.getLogger(__name__)
 
 #: Default prompt version when not explicitly specified
 PROMPT_VERSION = DEFAULT_PROMPT_VERSION
@@ -211,10 +214,16 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
     tool_calls = state.get("tool_calls", 0)
 
     if steps >= bounds.max_steps:
+        logger.warning("analyst: bound tripped, max_steps=%d at step %d",
+                       bounds.max_steps, steps)
         return {"stop_reason": "max_steps", "route": Route.LEGAL_COUNSEL}
     if tool_calls >= bounds.max_tool_calls:
+        logger.warning("analyst: bound tripped, max_tool_calls=%d",
+                       bounds.max_tool_calls)
         return {"stop_reason": "max_tool_calls", "route": Route.LEGAL_COUNSEL}
     if _deadline_passed(state, bounds):
+        logger.warning("analyst: bound tripped, wall_clock_ms=%d",
+                       bounds.max_wall_clock_ms)
         return {"stop_reason": "max_wall_clock_ms", "route": Route.LEGAL_COUNSEL}
 
     try:
@@ -224,12 +233,30 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
             temperature=0.0,
         )
     except Exception as exc:  # noqa: BLE001 - a provider failure must not escape
+        logger.warning(
+            "analyst step %d: model error: %s: %s",
+            steps + 1, type(exc).__name__, exc,
+        )
         return {
             "stop_reason": f"model_error: {type(exc).__name__}: {exc}",
             "route": Route.LEGAL_COUNSEL,
         }
 
     assert isinstance(step, Step)
+
+    # One line per step, so an escalation can be diagnosed from the uvicorn
+    # stream without pulling /runs/{id}/trace.
+    if step.action == Action.TOOL:
+        logger.info(
+            "analyst step %d: tool=%s args=%s",
+            steps + 1, step.tool,
+            {k: str(v)[:40] for k, v in step.arguments.items()},
+        )
+    else:
+        logger.info(
+            "analyst step %d: answer cites=%d claims=%d chars=%d",
+            steps + 1, len(step.citations), len(step.claims), len(step.answer),
+        )
 
     if step.action == Action.TOOL:
         if step.tool not in TOOL_NAMES:
@@ -321,6 +348,7 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
     # plainly ("Yes, gratuity is statutory") passes; one that says it searched
     # when it did not is sent back to actually search.
     if not state.get("tool_calls") and _claims_failed_retrieval(step.answer or ""):
+        logger.info("analyst step %d: refused fabricated retrieval claim", steps + 1)
         return {
             "messages": state["messages"]
             + [
@@ -369,6 +397,11 @@ def act(state: AnalystState, *, bounds: Bounds) -> dict[str, Any]:
         for item in json.loads(result):
             if isinstance(item, dict) and "chunk_id" in item:
                 chunks[item["chunk_id"]] = Chunk.model_validate(item)
+
+    logger.info(
+        "analyst act: %s returned %d bytes, %d chunks accumulated",
+        name, len(result), len(chunks),
+    )
 
     # Reference the assistant turn's call id so the pair is well-formed. The
     # previous version sent a bare ``role: "tool"`` message with a ``name`` and
@@ -458,6 +491,17 @@ def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
         correlation_id=correlation_id,
         stop_reason=stop_reason,
     )
+
+    logger.info(
+        "analyst draft: route=%s claims=%d citations=%d chunks=%d stop_reason=%s elapsed=%dms",
+        route.value,
+        len(claims),
+        sum(len(c.citations) for c in claims),
+        len(result.retrieved_chunks),
+        stop_reason or "-",
+        elapsed_ms,
+    )
+
     return {"claims": claims, "route": route, "answer": answer, "result": result}
 
 
@@ -513,6 +557,10 @@ def analyse(
         "tool_calls": 0,
         "chunks": {},
     }
+
+    logger.info("analyst run start correlation_id=%s prompt=%s",
+                correlation_id, resolved_version)
+
     final = app.invoke(initial)
     return final["result"]
 

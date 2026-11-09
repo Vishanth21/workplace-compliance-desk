@@ -7,6 +7,7 @@ Runs the two-agent workflow:
 """
 
 import asyncio
+import logging
 import os
 import time
 from datetime import UTC, datetime
@@ -27,6 +28,8 @@ from contracts import (
 from .analyst import AnalystProtocol, RealAnalyst, StubAnalyst
 from .queue import run_correlations
 from .store import metrics_counters, run_latencies_s, run_traces, runs
+
+logger = logging.getLogger(__name__)
 
 
 def _build_analyst() -> AnalystProtocol:
@@ -185,6 +188,10 @@ async def run_pipeline(
 
         elapsed_ms = (time.perf_counter() - start_perf) * 1000.0
         run_latencies_s.append(elapsed_ms / 1000.0)
+        logger.info(
+            "pipeline run=%s route=%s passed=%s elapsed=%.0fms",
+            run_id, outcome.final_route.value, outcome.passed, elapsed_ms,
+        )
 
         # 4. Reconstruct Run Trajectory (Requirement D5)
         #

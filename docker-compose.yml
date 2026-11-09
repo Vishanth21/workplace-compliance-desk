@@ -29,6 +29,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 30s   # room for Chroma warm-up before retries count
 
   # 2. Asynchronous Background Task Worker
   worker:

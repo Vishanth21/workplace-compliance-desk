@@ -30,6 +30,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -70,7 +71,30 @@ from index.retrieve import get_index_metadata
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage application lifecycle and worker pool."""
+    """Manage application lifecycle and worker pool.
+
+    Warms the Chroma collection before accepting traffic. First access is
+    5-10s of SentenceTransformer weight load plus Chroma connect. Without
+    this the first real request pays that cost, and if a caller's HTTP
+    timeout is tighter than the sum the request times out even though the
+    run succeeds on the server. See INC-2026-11-09-08.
+
+    Runs in the main thread before start_workers, so the two worker tasks
+    cannot race on _get_collection() and trip the 'RustBindingsAPI' error
+    that showed up under concurrent first-use (INC-2026-11-09-09).
+
+    Falls back gracefully: if the index is missing or corrupt, status will
+    be 'fallback' and the service runs on the 8-chunk CORPUS_CHUNKS, same
+    as before.
+    """
+    meta = get_index_metadata()
+    log_level = logging.INFO if meta["status"] == "ready" else logging.WARNING
+    logger.log(
+        log_level,
+        "chroma warm: chunks=%d status=%s embed_model=%s",
+        meta["chunk_count"], meta["status"], meta["embed_model"],
+    )
+
     start_workers(WORKER_COUNT)
     yield
     await stop_workers()

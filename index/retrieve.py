@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -126,31 +127,47 @@ CORPUS_CHUNKS: list[Chunk] = [
 _client: chromadb.PersistentClient | None = None
 _collection: chromadb.Collection | None = None
 _embedder: LocalEmbedder | None = None
+_init_lock = threading.Lock()
 
 
 def _get_collection() -> chromadb.Collection | None:
-    """Lazy initialize and return the persistent Chroma collection."""
+    """Lazy initialize and return the persistent Chroma collection.
+
+    Guarded by a lock: two threads calling concurrently would both attempt
+    chromadb.PersistentClient initialization, and the second one hits
+    'RustBindingsAPI' object has no attribute 'bindings' because the first
+    has not finished constructing its Rust bindings. The pre-warm in
+    app/main.py lifespan normally beats this, but the lock covers the case
+    where warm failed and the first real request has to retry the init.
+    """
     global _client, _collection, _embedder
+
     if _collection is not None:
         return _collection
-    if not INDEX_DIR.exists():
-        return None
-    try:
-        import chromadb
-        from index.embedder import LocalEmbedder
 
-        if _client is None:
-            _client = chromadb.PersistentClient(path=str(INDEX_DIR))
-        existing = [c.name for c in _client.list_collections()]
-        if COLLECTION not in existing:
+    with _init_lock:
+        # Re-check under the lock: another thread may have finished init.
+        if _collection is not None:
+            return _collection
+
+        if not INDEX_DIR.exists():
             return None
-        if _embedder is None:
-            _embedder = LocalEmbedder()
-        _collection = _client.get_collection(COLLECTION, embedding_function=_embedder)
-        return _collection
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Chroma collection load failed; using in-memory corpus: %s", exc)
-        return None
+        try:
+            import chromadb
+            from index.embedder import LocalEmbedder
+
+            if _client is None:
+                _client = chromadb.PersistentClient(path=str(INDEX_DIR))
+            existing = [c.name for c in _client.list_collections()]
+            if COLLECTION not in existing:
+                return None
+            if _embedder is None:
+                _embedder = LocalEmbedder()
+            _collection = _client.get_collection(COLLECTION, embedding_function=_embedder)
+            return _collection
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Chroma collection load failed; using in-memory corpus: %s", exc)
+            return None
 
 
 def _sort_chunks(chunks: list[Chunk]) -> list[Chunk]:

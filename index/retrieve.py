@@ -11,10 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import chromadb
-
 from contracts import Chunk, ProvisionStatus
-from index.embedder import LocalEmbedder
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +136,9 @@ def _get_collection() -> chromadb.Collection | None:
     if not INDEX_DIR.exists():
         return None
     try:
+        import chromadb
+        from index.embedder import LocalEmbedder
+
         if _client is None:
             _client = chromadb.PersistentClient(path=str(INDEX_DIR))
         existing = [c.name for c in _client.list_collections()]

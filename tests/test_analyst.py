@@ -305,9 +305,10 @@ def test_flagship_case_reaches_the_second_proviso():
             _tool("lookup_clause", section="53", doc="css2020"),
             _answer(
                 "Gratuity is payable. Under the second proviso to section 53(1) of "
-                "the Code on Social Security, 2020, an employee on fixed-term "
-                "employment is paid gratuity on a pro-rata basis, and the five-year "
-                "continuous-service requirement does not apply.",
+                "the Code on Social Security, 2020, the five-year continuous-service "
+                "requirement does not apply where employment ends on expiry of the fixed "
+                "term, and under the sixth proviso an employee on fixed-term "
+                "employment is paid gratuity on a pro-rata basis.",
                 cites=["css2020-s53-proviso_2", "css2020-s53-proviso_6"],
             ),
         ]

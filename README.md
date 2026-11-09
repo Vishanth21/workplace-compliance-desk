@@ -57,7 +57,7 @@ Expected result:
 | `verification.passed` | `true` |
 | citations | `css2020-s53-proviso_6` and `css2020-s53-proviso_2` |
 
-The main clause of section 53 sets a five-year continuous-service threshold. The sixth proviso waives that threshold for fixed-term employment; the second proviso requires pro-rata payment. An answer citing only the main clause is incorrect for this question.
+The main clause of section 53 sets a five-year continuous-service threshold. The second proviso waives that threshold for fixed-term employment; the sixth proviso requires pro-rata payment. An answer citing only the main clause is incorrect for this question.
 
 With the default `ANALYST_MODE=stub`, the same advisory is returned for every question. This exercises the routing, citation and verification path. Reasoning about the specific question requires `ANALYST_MODE=real` with a configured model.
 

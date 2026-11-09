@@ -39,62 +39,63 @@ class StubAnalyst:
 
     async def analyze(self, request: RunRequest, correlation_id: str) -> AnalystResult:
         # Flagship provisions: section 53 of the Code on Social Security, 2020.
-        # Two provisos are load-bearing: the second makes fixed-term employment
-        # gratuity-eligible on a pro-rata basis, and the sixth removes the
-        # five-year continuous-service threshold when the term expires.
-        pro_rata = Chunk(
+        # Two provisos are load-bearing: the second removes the five-year
+        # continuous-service threshold when the term expires, and the sixth
+        # makes fixed-term employment gratuity-eligible on a pro-rata basis.
+        threshold = Chunk(
             chunk_id="css2020-s53-proviso_2",
             doc="css2020",
             section="53",
             part="proviso_2",
             status=ProvisionStatus.IN_FORCE,
             text=(
-                "Provided further that in the case of an employee employed on "
-                "fixed term employment or on a contract basis, the employer shall pay "
-                "gratuity on pro rata basis."
+                "Provided further that the completion of continuous service of five years shall not "
+                "be necessary where the termination of the employment of any employee is due to "
+                "death or disablement or expiration of fixed term employment or happening of any "
+                "such event as may be notified by the Central Government."
             ),
         )
-        threshold = Chunk(
+        pro_rata = Chunk(
             chunk_id="css2020-s53-proviso_6",
             doc="css2020",
             section="53",
             part="proviso_6",
             status=ProvisionStatus.IN_FORCE,
             text=(
-                "Provided also that continuous service of five years shall not be "
-                "necessary if employment ends on expiry of fixed term employment."
+                "Provided also that in the case of an employee employed on fixed term "
+                "employment or a deceased employee, the employer shall pay gratuity on pro rata basis."
             ),
         )
 
         claims = [
             Claim(
                 text=(
-                    "Under the sixth proviso to section 53 of the Code on Social "
+                    "Under the second proviso to section 53 of the Code on Social "
                     "Security, 2020, five years' continuous service is not necessary "
                     "where the employment ends on expiry of a fixed term."
                 ),
-                citations=["css2020-s53-proviso_6"],
+                citations=["css2020-s53-proviso_2"],
             ),
             Claim(
                 text=(
-                    "Under the second proviso to section 53, an employee on fixed-term "
+                    "Under the sixth proviso to section 53, an employee on fixed-term "
                     "employment is paid gratuity on a pro-rata basis."
                 ),
-                citations=["css2020-s53-proviso_2"],
+                citations=["css2020-s53-proviso_6"],
             ),
         ]
 
         return AnalystResult(
             route=Route.ANSWER,
             draft_answer=(
-                "Yes. Under the sixth proviso to section 53 of the Code on Social "
+                "Yes. Under the second proviso to section 53 of the Code on Social "
                 "Security, 2020, five years' continuous service is not necessary where "
-                "the employment ends on expiry of a fixed term; under the second proviso "
+                "the employment ends on expiry of a fixed term; under the sixth proviso "
                 "an employee on fixed-term employment is paid gratuity on a pro-rata "
                 "basis."
             ),
             claims=claims,
-            retrieved_chunks=[pro_rata, threshold],
+            retrieved_chunks=[threshold, pro_rata],
             loop=LoopStats(steps=1, tool_calls=1, wall_clock_ms=200),
             prompt_version=self.prompt_version,
             correlation_id=correlation_id,

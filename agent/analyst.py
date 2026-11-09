@@ -514,11 +514,10 @@ FLAGSHIP_SCRIPT = [
         action=Action.ANSWER,
         reasoning="The provisos answer it directly.",
         answer=(
-            "Yes. Under the second proviso to section 53 of the Code on Social "
-            "Security, 2020, an employee on fixed-term employment is paid "
-            "gratuity on a pro-rata basis, and the five-year continuous-service "
-            "threshold does not apply where the employment ends on expiry of "
-            "the fixed term."
+            "Yes. Gratuity is payable: under section 53 of the Code on Social "
+            "Security, 2020, the five-year continuous-service threshold does not "
+            "apply where the employment ends on expiry of the fixed term, and an "
+            "employee on fixed-term employment is paid gratuity on a pro-rata basis."
         ),
         citations=["css2020-s53-proviso_2", "css2020-s53-proviso_6"],
     ),

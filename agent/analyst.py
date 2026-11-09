@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from enum import StrEnum
@@ -48,6 +49,18 @@ class Action(StrEnum):
     ANSWER = "answer"
 
 
+class ClaimDraft(BaseModel):
+    """One assertion of the answer, as the model decomposed it."""
+
+    text: str = Field(
+        description="One assertion, verifiable against its citations alone."
+    )
+    citations: list[str] = Field(
+        default_factory=list,
+        description="Chunk ids whose text fully supports this assertion.",
+    )
+
+
 class Step(BaseModel):
     """One decision by the model: call a tool, or answer."""
 
@@ -68,6 +81,15 @@ class Step(BaseModel):
         description=(
             "When action is 'answer': chunk ids the answer relies on. Cite only "
             "chunks you retrieved and used, not every chunk you saw."
+        ),
+    )
+    claims: list[ClaimDraft] = Field(
+        default_factory=list,
+        description=(
+            "When action is 'answer': the answer decomposed into individually "
+            "verifiable assertions, each citing only the passages that support "
+            "that assertion. Together they must cover every substantive assertion "
+            "in 'answer'. Empty on tool steps."
         ),
     )
 
@@ -99,6 +121,7 @@ class AnalystState(TypedDict, total=False):
     prompt_version: str
     #: Chunk ids the model says its answer relies on.
     cited_ids: list[str]
+    claim_drafts: list[ClaimDraft]
     #: Set when the model made a mistake it can correct, so ``think`` runs again.
     needs_retry: bool
     claims: list[Claim]
@@ -323,6 +346,7 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
         "answer_text": step.answer,
         # Filtered against what was retrieved in ``draft``.
         "cited_ids": list(step.citations),
+        "claim_drafts": list(step.claims),
         "route": Route.ANSWER,
         "needs_retry": False,
     }
@@ -402,8 +426,21 @@ def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
     # Invented ids are dropped, so every citation names a retrieved chunk.
     chunks = state.get("chunks", {})
     if answer:
-        cited = [cid for cid in state.get("cited_ids", []) if cid in chunks]
-        claims = [Claim(text=answer, citations=sorted(set(cited)))]
+        claims = []
+        for cd in state.get("claim_drafts") or []:
+            if not cd.text.strip():
+                continue
+            # Same invariant as before: every citation names a retrieved chunk.
+            cited = sorted({cid for cid in cd.citations if cid in chunks})
+            # Anti-laundering (C3): a claim whose citations were ALL invented is
+            # kept with an empty list so stage 1 fails it and the run escalates.
+            # Dropping it would let ungrounded text ride along inside draft_answer.
+            claims.append(Claim(text=cd.text.strip(), citations=cited))
+        if not claims:
+            # Fallback: model supplied no claims (all existing scripted
+            # transcripts). Legacy single whole-answer claim.
+            cited = [cid for cid in state.get("cited_ids", []) if cid in chunks]
+            claims = [Claim(text=answer, citations=sorted(set(cited)))]
     else:
         claims = []
 
@@ -520,6 +557,22 @@ FLAGSHIP_SCRIPT = [
             "employee on fixed-term employment is paid gratuity on a pro-rata basis."
         ),
         citations=["css2020-s53-proviso_2", "css2020-s53-proviso_6"],
+        claims=[
+            ClaimDraft(
+                text=(
+                    "Completion of five years' continuous service is not necessary "
+                    "where the employment ends on expiry of fixed term employment."
+                ),
+                citations=["css2020-s53-proviso_2"],
+            ),
+            ClaimDraft(
+                text=(
+                    "In the case of an employee employed on fixed term employment, "
+                    "the employer shall pay gratuity on a pro-rata basis."
+                ),
+                citations=["css2020-s53-proviso_6"],
+            ),
+        ],
     ),
 ]
 

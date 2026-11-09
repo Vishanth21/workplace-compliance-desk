@@ -17,8 +17,9 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from agent.analyst import Bounds, Step, analyse, build_graph
+from agent.analyst import Bounds, ClaimDraft, Step, analyse, build_graph
 from agent.model import ScriptedModel
+from agent.verifier import Verifier
 from contracts import Route
 
 
@@ -513,3 +514,157 @@ def test_the_recorded_assistant_turn_revalidates_as_a_step():
     step = Step.model_validate_json(assistant["content"])
     assert step.action == "tool"
     assert step.tool == "lookup_clause"
+
+
+# --- Claim splitting and anti-laundering (Phase 2) ---
+
+
+def test_model_claims_propagate_through_draft():
+    """Scripted answer step with two ClaimDrafts preserves claims and citations."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            Step(
+                action="answer",
+                answer="Gratuity is payable pro-rata.",
+                citations=["css2020-s53-proviso_2", "css2020-s53-proviso_6"],
+                claims=[
+                    ClaimDraft(
+                        text="Threshold waived for fixed term.",
+                        citations=["css2020-s53-proviso_2"],
+                    ),
+                    ClaimDraft(
+                        text="Gratuity paid pro-rata.",
+                        citations=["css2020-s53-proviso_6"],
+                    ),
+                ],
+            ),
+        ]
+    )
+    result = analyse("Check fixed term.", REQUEST, model=model)
+    assert len(result.claims) == 2
+    assert result.claims[0].text == "Threshold waived for fixed term."
+    assert result.claims[0].citations == ["css2020-s53-proviso_2"]
+    assert result.claims[1].text == "Gratuity paid pro-rata."
+    assert result.claims[1].citations == ["css2020-s53-proviso_6"]
+
+
+def test_answer_without_claims_falls_back_to_single_claim():
+    """Missing claims field falls back to single claim with top-level citations."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            _answer("Section 53 applies.", cites=["css2020-s53-main"]),
+        ]
+    )
+    result = analyse("Check section 53.", REQUEST, model=model)
+    assert len(result.claims) == 1
+    assert result.claims[0].text == "Section 53 applies."
+    assert result.claims[0].citations == ["css2020-s53-main"]
+
+
+def test_claim_with_all_citations_invented_is_kept_empty():
+    """A claim citing only invented chunks survives with empty citations so stage 1 fails it."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            Step(
+                action="answer",
+                answer="Invented claim.",
+                citations=["invented-chunk-999"],
+                claims=[
+                    ClaimDraft(
+                        text="Invented assertion.",
+                        citations=["invented-chunk-999"],
+                    ),
+                ],
+            ),
+        ]
+    )
+    result = analyse("Check invented.", REQUEST, model=model)
+    assert len(result.claims) == 1
+    assert result.claims[0].text == "Invented assertion."
+    assert result.claims[0].citations == []
+
+    # Verifier fails it on Stage 1
+    outcome = Verifier().verify(result)
+    assert outcome.passed is False
+    assert "no citations" in outcome.reason.lower()
+
+
+def test_blank_text_claims_are_dropped():
+    """Blank claims are filtered out; if all blank, fallback to single claim."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            Step(
+                action="answer",
+                answer="Full answer.",
+                citations=["css2020-s53-main"],
+                claims=[
+                    ClaimDraft(text="   ", citations=["css2020-s53-main"]),
+                    ClaimDraft(text="Good claim.", citations=["css2020-s53-main"]),
+                ],
+            ),
+        ]
+    )
+    result = analyse("Check blank.", REQUEST, model=model)
+    assert len(result.claims) == 1
+    assert result.claims[0].text == "Good claim."
+
+    model_all_blank = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            Step(
+                action="answer",
+                answer="Full answer fallback.",
+                citations=["css2020-s53-main"],
+                claims=[
+                    ClaimDraft(text="", citations=["css2020-s53-main"]),
+                    ClaimDraft(text="   ", citations=["css2020-s53-main"]),
+                ],
+            ),
+        ]
+    )
+    result_fallback = analyse("Check all blank.", REQUEST, model=model_all_blank)
+    assert len(result_fallback.claims) == 1
+    assert result_fallback.claims[0].text == "Full answer fallback."
+    assert result_fallback.claims[0].citations == ["css2020-s53-main"]
+
+
+def test_model_claims_win_over_top_level_citations():
+    """Model claims win when present; top-level citations is fallback only."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            Step(
+                action="answer",
+                answer="Full answer.",
+                citations=["css2020-s53-main", "css2020-s53-proviso_2", "css2020-s53-proviso_6"],
+                claims=[
+                    ClaimDraft(
+                        text="Only refers to main.",
+                        citations=["css2020-s53-main"],
+                    ),
+                ],
+            ),
+        ]
+    )
+    result = analyse("Check priority.", REQUEST, model=model)
+    assert len(result.claims) == 1
+    assert result.claims[0].text == "Only refers to main."
+    assert result.claims[0].citations == ["css2020-s53-main"]
+
+
+def test_flagship_scripted_gate_still_passes():
+    """The existing agent.analyst --scripted checks must still PASS with decomposed claims."""
+    from agent.analyst import _run_scripted, _scripted_result
+
+    result, tools_used = _scripted_result()
+    assert result.route == Route.ANSWER
+    assert result.loop.tool_calls >= 2
+    assert "lookup_clause" in tools_used
+    assert len(result.claims) == 2
+    assert "css2020-s53-proviso_2" in result.claims[0].citations
+    assert "css2020-s53-proviso_6" in result.claims[1].citations
+    assert _run_scripted() == 0

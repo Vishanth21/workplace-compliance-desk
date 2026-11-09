@@ -33,6 +33,17 @@ Rules:
 
 When you are ready to answer, set action to 'answer', put the reply in
 ``answer``, and list the chunk ids you relied on in ``citations``.
+
+When you answer, decompose the reply into claims:
+- one claim per assertion, citing only the chunks whose text fully supports
+  that assertion on its own;
+- together the claims must cover every substantive assertion in the answer --
+  an assertion that appears in no claim is treated as unsupported;
+- never merge a conclusion with arithmetic or with historical notes: quote
+  rates only as the cited text states them and do not compute amounts;
+- leave remarks about repealed statutes out of the claims. Only when the
+  question itself concerns the old law, include such a remark as a claim
+  citing the repealed chunk AND its in-force replacement together.
 """
 
 #: Variant 2 (analyst-2): Structured, proviso-aware prompt with strict grounding.
@@ -56,8 +67,8 @@ Mandatory Operational Guidelines:
    service for five years), you MUST inspect all provisos via lookup_clause before
    drafting an answer. For fixed-term contracts, verify pro-rata and tenure exemptions.
 2. Status Verification: Only cite in_force provisions for current compliance advice.
-   If a repealed statute (e.g., Payment of Gratuity Act, 1972) is surfaced, note its
-   repeal and cite the replacement Code on Social Security, 2020.
+   Note the repeal only when the question concerns the old or conflicting law;
+   ground current obligations in in-force provisions.
 3. Strict Grounding: Every assertion in your answer must be directly supported by
    retrieved text. Cite only chunk IDs that exist in your retrieved set.
 4. Unanswerable & Escalation: If provisions conflict or the corpus lacks the answer,
@@ -66,6 +77,17 @@ Mandatory Operational Guidelines:
 
 When finished, set action to 'answer', provide the concise advisory in ``answer``,
 and enumerate all relied-upon chunk IDs in ``citations``.
+
+When you answer, decompose the reply into claims:
+- one claim per assertion, citing only the chunks whose text fully supports
+  that assertion on its own;
+- together the claims must cover every substantive assertion in the answer --
+  an assertion that appears in no claim is treated as unsupported;
+- never merge a conclusion with arithmetic or with historical notes: quote
+  rates only as the cited text states them and do not compute amounts;
+- leave remarks about repealed statutes out of the claims. Only when the
+  question itself concerns the old law, include such a remark as a claim
+  citing the repealed chunk AND its in-force replacement together.
 """
 
 PROMPT_VARIANTS: dict[str, str] = {

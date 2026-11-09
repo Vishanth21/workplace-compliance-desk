@@ -49,6 +49,7 @@ def make_analyst_result(
     retrieved_chunks: list[Chunk],
     route: Route = Route.ANSWER,
     draft_answer: str = "Sample draft answer.",
+    stop_reason: str | None = None,
 ) -> AnalystResult:
     return AnalystResult(
         route=route,
@@ -58,6 +59,7 @@ def make_analyst_result(
         loop=LoopStats(),
         prompt_version="v1",
         correlation_id="test-corr-id-123",
+        stop_reason=stop_reason,
     )
 
 
@@ -254,3 +256,74 @@ def test_top_level_verify_function():
     outcome = verify(result)
     assert outcome.passed is True
     assert outcome.final_route == Route.ANSWER
+
+
+# --- 4. Non-answer routes: deliberate escalation vs provider failure ---
+
+
+@pytest.mark.parametrize("route", [Route.LEGAL_COUNSEL, Route.MORE_DETAIL])
+def test_deliberate_escalation_passes(route: Route):
+    """Declining to answer is a legitimate outcome, not a verification failure."""
+    verifier = Verifier()
+    result = make_analyst_result([], [], route=route, draft_answer="")
+
+    outcome = verifier.verify(result)
+    assert outcome.passed is True, "a deliberate escalation must not read as a failure"
+    assert outcome.final_route == route
+    assert "routed directly" in outcome.reason
+
+
+def test_model_error_escalation_does_not_pass():
+    """The regression this guard exists for.
+
+    The analyst catches a ModelError and routes to counsel so the run degrades
+    instead of crashing. Before this guard, ``route != ANSWER`` short-circuited
+    to ``passed=True``, so a 100%-broken adapter produced a clean pass. That is
+    the difference between a demo that degrades loudly and one that lies.
+    """
+    verifier = Verifier()
+    result = make_analyst_result(
+        [],
+        [],
+        route=Route.LEGAL_COUNSEL,
+        draft_answer="",
+        stop_reason="model_error: CircuitBreakerOpenError: breaker open",
+    )
+
+    outcome = verifier.verify(result)
+    assert outcome.passed is False, (
+        "an escalation caused by a provider failure must not verify as a pass"
+    )
+    # The route is unchanged -- it still goes to a human. Only the verdict differs.
+    assert outcome.final_route == Route.LEGAL_COUNSEL
+    assert "provider failure" in outcome.reason
+    assert "breaker open" in outcome.reason
+    assert outcome.failed_claims == []
+
+
+def test_non_model_error_stop_reason_still_passes():
+    """``stop_reason`` is also used for deliberate stops; only model_error flips."""
+    verifier = Verifier()
+    result = make_analyst_result(
+        [], [], route=Route.MORE_DETAIL, draft_answer="", stop_reason="max_steps"
+    )
+
+    outcome = verifier.verify(result)
+    assert outcome.passed is True
+    assert outcome.final_route == Route.MORE_DETAIL
+
+
+def test_scripted_verifier_inherits_the_model_error_guard():
+    """ScriptedVerifier delegates to super().verify() first, so it inherits."""
+    verifier = ScriptedVerifier()
+    result = make_analyst_result(
+        [],
+        [],
+        route=Route.LEGAL_COUNSEL,
+        draft_answer="",
+        stop_reason="model_error: ModelError: unreachable",
+    )
+
+    outcome = verifier.verify(result)
+    assert outcome.passed is False
+    assert outcome.final_route == Route.LEGAL_COUNSEL

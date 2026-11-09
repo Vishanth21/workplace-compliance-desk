@@ -228,18 +228,34 @@ def think(state: AnalystState, *, model: Model, bounds: Bounds) -> dict[str, Any
                 "needs_retry": True,
             }
         # Hand the pending call to ``act``.
+        #
+        # The assistant turn records the *JSON step* that was emitted, not the
+        # prose reasoning. This is a JSON-mode loop: every turn is a ``Step``
+        # object. Recording prose here made the transcript inconsistent -- the
+        # model saw a prose assistant turn followed by a tool result and, at
+        # step 2, invented ``{"name": "lookup_clause", "arguments": {...}}``, a
+        # function-call shape it had never been asked for. That failed
+        # validation 3/3 on a live endpoint. Echoing the step shape keeps the
+        # history self-consistent and the model imitates the right thing.
+        #
+        # The ``tool_calls`` entry stays (``act`` and ``_pending_tool_call``
+        # key off it) and now carries the ``id``/``type`` fields the OpenAI
+        # protocol expects, so the tool result can reference it.
+        call_id = f"call_{uuid.uuid4().hex[:24]}"
         return {
             "messages": state["messages"]
             + [
                 {
                     "role": "assistant",
-                    "content": step.reasoning,
+                    "content": step.model_dump_json(),
                     "tool_calls": [
                         {
+                            "id": call_id,
+                            "type": "function",
                             "function": {
                                 "name": step.tool,
                                 "arguments": json.dumps(step.arguments),
-                            }
+                            },
                         }
                     ],
                 }
@@ -330,9 +346,18 @@ def act(state: AnalystState, *, bounds: Bounds) -> dict[str, Any]:
             if isinstance(item, dict) and "chunk_id" in item:
                 chunks[item["chunk_id"]] = Chunk.model_validate(item)
 
+    # Reference the assistant turn's call id so the pair is well-formed. The
+    # previous version sent a bare ``role: "tool"`` message with a ``name`` and
+    # no id -- not a shape any OpenAI-compatible endpoint recognises as the
+    # response to a call -- which contributed to the model inventing its own
+    # function-call format on the following turn.
+    call_id = (calls[0].get("id") if isinstance(calls[0], dict) else None) or ""
+    tool_message: dict[str, Any] = {"role": "tool", "content": result, "name": name}
+    if call_id:
+        tool_message["tool_call_id"] = call_id
+
     return {
-        "messages": state["messages"]
-        + [{"role": "tool", "content": result, "name": name}],
+        "messages": state["messages"] + [tool_message],
         "tool_calls": state.get("tool_calls", 0) + 1,
         "chunks": chunks,
     }

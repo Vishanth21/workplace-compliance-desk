@@ -74,8 +74,29 @@ class Verifier:
         self.model = model
 
     def verify(self, result: AnalystResult) -> VerificationOutcome:
-        # Non-answer routes (e.g. request-more-detail or legal-counsel-review) pass through
+        # Non-answer routes (e.g. request-more-detail or legal-counsel-review)
+        # normally pass through: declining to answer is a legitimate outcome,
+        # not a verification failure.
+        #
+        # An escalation *caused by a provider failure* is different. The analyst
+        # catches a ModelError and routes to counsel so the run degrades instead
+        # of crashing, but the resulting outcome must not be reported as a pass:
+        # that made a 100%-broken adapter indistinguishable from a deliberate
+        # hand-off to a lawyer. The route stays legal-counsel-review either way;
+        # only `passed` and the reason differ.
         if result.route != Route.ANSWER:
+            if result.stop_reason and result.stop_reason.startswith("model_error"):
+                return VerificationOutcome(
+                    passed=False,
+                    final_route=result.route,
+                    reason=(
+                        "Analyst could not complete: "
+                        f"{result.stop_reason}. Routed to {result.route.value}, "
+                        "but this is a provider failure, not a deliberate "
+                        "escalation."
+                    ),
+                    failed_claims=[],
+                )
             return VerificationOutcome(
                 passed=True,
                 final_route=result.route,

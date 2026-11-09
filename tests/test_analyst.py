@@ -428,3 +428,87 @@ def test_provider_error_does_not_escape():
 
     assert result.route == Route.LEGAL_COUNSEL
     assert result.claims == []
+
+
+# ---------------------------------------------------------------------------
+# Transcript protocol
+#
+# The loop is JSON-mode: every model turn is a ``Step`` object. The assistant
+# turn recorded after a tool call used to carry prose ``reasoning`` plus a
+# ``tool_calls`` entry with no ``id``/``type``, and the tool message carried no
+# ``tool_call_id``. Live, that made the model imitate a function-call shape it
+# had never been asked for (``{"name": "lookup_clause", "arguments": {...}}``)
+# on the very next turn, which failed ``Step`` validation 3/3. These pin the
+# protocol so a refactor cannot quietly reintroduce it.
+# ---------------------------------------------------------------------------
+
+
+def test_assistant_turn_records_the_json_step_not_prose():
+    model = ScriptedModel(
+        [
+            _tool("corpus_search", query="gratuity fixed term"),
+            _answer("Proviso 2 applies.", cites=["css2020-s53-proviso_2"]),
+        ]
+    )
+    analyse("Do we owe gratuity?", REQUEST, model=model)
+
+    second_call = model.calls[1]
+    assistant = [m for m in second_call if m.get("role") == "assistant"]
+    assert len(assistant) == 1, "exactly one assistant turn preceded the tool result"
+
+    # The content must parse as a Step -- not prose the model can misread.
+    parsed = json.loads(assistant[0]["content"])
+    assert parsed["action"] == "tool"
+    assert parsed["tool"] == "corpus_search"
+    assert parsed["arguments"] == {"query": "gratuity fixed term"}
+
+
+def test_tool_call_carries_id_and_type():
+    model = ScriptedModel(
+        [
+            _tool("corpus_search", query="gratuity"),
+            _answer("Cited.", cites=["css2020-s53-main"]),
+        ]
+    )
+    analyse("Do we owe gratuity?", REQUEST, model=model)
+
+    assistant = [m for m in model.calls[1] if m.get("role") == "assistant"][0]
+    calls = assistant["tool_calls"]
+    assert len(calls) == 1
+    assert calls[0]["type"] == "function"
+    assert calls[0]["id"].startswith("call_")
+    assert calls[0]["function"]["name"] == "corpus_search"
+
+
+def test_tool_result_references_the_call_id():
+    """The ``tool`` message must answer the assistant's call id, not float free."""
+    model = ScriptedModel(
+        [
+            _tool("corpus_search", query="gratuity"),
+            _answer("Cited.", cites=["css2020-s53-main"]),
+        ]
+    )
+    analyse("Do we owe gratuity?", REQUEST, model=model)
+
+    second_call = model.calls[1]
+    assistant = [m for m in second_call if m.get("role") == "assistant"][0]
+    tool_message = [m for m in second_call if m.get("role") == "tool"][0]
+
+    assert tool_message["tool_call_id"] == assistant["tool_calls"][0]["id"]
+    assert tool_message["name"] == "corpus_search"
+
+
+def test_the_recorded_assistant_turn_revalidates_as_a_step():
+    """The transcript must stay parseable by the same schema the model is held to."""
+    model = ScriptedModel(
+        [
+            _tool("lookup_clause", section="53"),
+            _answer("Fetched.", cites=["css2020-s53-main"]),
+        ]
+    )
+    analyse("Fetch s.53.", REQUEST, model=model)
+
+    assistant = [m for m in model.calls[1] if m.get("role") == "assistant"][0]
+    step = Step.model_validate_json(assistant["content"])
+    assert step.action == "tool"
+    assert step.tool == "lookup_clause"

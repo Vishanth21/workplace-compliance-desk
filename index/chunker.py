@@ -109,6 +109,14 @@ def extract_sections(text: str) -> list[RawSection]:
         line = _strip_margin(line)
         if not line.strip():
             continue
+        # Amendment-history lines ("4. Subs. by Act 12 of 2018, ...") match
+        # ``_SECTION_START`` and were parsed as statute, producing chunks that
+        # read like law but are footnotes (e.g. pga1972-s4_r2-main). They are
+        # not retrievable text: a live model citing one fails stage-2 with a
+        # misleading reason. Skip them entirely -- neither a section start nor
+        # a continuation of the previous section.
+        if _FOOTNOTE.match(line):
+            continue
         m = _SECTION_START.match(line)
         number: str | None = None
         body: str | None = None

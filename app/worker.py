@@ -37,7 +37,7 @@ async def main() -> None:
             await asyncio.sleep(1)
     finally:
         logger.info("Shutting down worker pool...")
-        stop_workers()
+        await stop_workers()
         logger.info("Worker pool stopped.")
 
 

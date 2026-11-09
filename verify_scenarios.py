@@ -236,7 +236,11 @@ def main():
             print(f"  {r['kind']} {r['elapsed']:.1f}s")
         print()
 
-    with open("/tmp/scenario_truth.json", "w") as f:
+    import tempfile
+    from pathlib import Path
+
+    out_path = Path(tempfile.gettempdir()) / "scenario_truth.json"
+    with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
 
     print("=" * 78)
@@ -248,7 +252,7 @@ def main():
             )
         else:
             print(f"{r['sid']:16} {r['kind']:8}")
-    print(f"\nfull JSON: /tmp/scenario_truth.json")
+    print(f"\nfull JSON: {out_path}")
     return 0
 
 

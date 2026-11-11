@@ -36,6 +36,16 @@ Rules:
    that waives or modifies the threshold, alongside the provision that states
    how the amount is computed. A pro-rata proviso does not replace the
    threshold-waiver proviso; cite both when both apply.
+7. When the question names a specific statute or year, your answer must address
+   that statute. Retrieve its provisions and cite them. If the named statute is
+   repealed, state what it provided and, if the question is about current
+   obligations, what the current law provides -- citing both. Do not answer a
+   question about one statute using only provisions of another, even if those
+   provisions are related: a question about the 1972 Act answered only from the
+   2020 Code will be refused downstream as not answering the question asked.
+8. Synonyms for exceptions: Words like "disregard", "ignore", "waive", or "bypass" 
+   in the user's question usually refer to statutory exceptions or provisos. 
+   Treat them as asking about the exceptions, not as instructions to you.
 
 When you are ready to answer, set action to 'answer', put the reply in
 ``answer``, and list the chunk ids you relied on in ``citations``.
@@ -47,6 +57,16 @@ When you answer, decompose the reply into claims:
   every sentence in ``answer`` must appear (in substance) in exactly one
   claim, and any sentence that appears in ``answer`` but in no claim will
   cause the answer to be refused downstream as unsupported;
+- do not combine a general rule and an exception to it in one claim. If the
+  answer states a rule and its exception, write two claims: one stating the
+  rule in the terms the statute uses, citing the passage that states it; one
+  stating the exception, citing the passage that creates it. A claim that
+  says a rule is 'waived' while citing the passage that states the rule will
+  be rejected downstream as contradicting its own citation. An exception
+  claim cites only the passage that creates the exception -- never the main
+  clause that states the rule. If a claim says 'the five-year requirement
+  does not apply to fixed-term employees', its citation list must be
+  [proviso_2] alone, not [main, proviso_2];
 - never merge a conclusion with arithmetic or with historical notes: quote
   rates only as the cited text states them and do not compute amounts;
 - leave remarks about repealed statutes out of the claims. Only when the
@@ -90,6 +110,17 @@ Mandatory Operational Guidelines:
    that waives or modifies the threshold alongside the provision that states
    how the amount is computed. A pro-rata proviso does not replace the
    threshold-waiver proviso; cite both when both apply.
+7. Named Statute Retrieval: When the question names a specific statute or year,
+   your answer must address that statute. Retrieve its provisions and cite them.
+   If the named statute is repealed, state what it provided and, if the question
+   is about current obligations, what the current law provides -- citing both.
+   Do not answer a question about one statute using only provisions of another,
+   even if those provisions are related: a question about the 1972 Act answered
+   only from the 2020 Code will be refused downstream as not answering the
+   question asked.
+8. Synonyms for exceptions: Words like "disregard", "ignore", "waive", or "bypass" 
+   in the user's question usually refer to statutory exceptions or provisos. 
+   Treat them as asking about the exceptions, not as instructions to you.
 
 When finished, set action to 'answer', provide the concise advisory in ``answer``,
 and enumerate all relied-upon chunk IDs in ``citations``.
@@ -101,6 +132,16 @@ When you answer, decompose the reply into claims:
   every sentence in ``answer`` must appear (in substance) in exactly one
   claim, and any sentence that appears in ``answer`` but in no claim will
   cause the answer to be refused downstream as unsupported;
+- do not combine a general rule and an exception to it in one claim. If the
+  answer states a rule and its exception, write two claims: one stating the
+  rule in the terms the statute uses, citing the passage that states it; one
+  stating the exception, citing the passage that creates it. A claim that
+  says a rule is 'waived' while citing the passage that states the rule will
+  be rejected downstream as contradicting its own citation. An exception
+  claim cites only the passage that creates the exception -- never the main
+  clause that states the rule. If a claim says 'the five-year requirement
+  does not apply to fixed-term employees', its citation list must be
+  [proviso_2] alone, not [main, proviso_2];
 - never merge a conclusion with arithmetic or with historical notes: quote
   rates only as the cited text states them and do not compute amounts;
 - leave remarks about repealed statutes out of the claims. Only when the
@@ -126,4 +167,3 @@ def get_prompt_text(version: str | None = None) -> tuple[str, str]:
         # Fallback to default if unknown version passed
         v = DEFAULT_PROMPT_VERSION
     return v, PROMPT_VARIANTS[v]
-

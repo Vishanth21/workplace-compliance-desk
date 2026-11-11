@@ -29,7 +29,13 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from contracts import AnalystResult, Chunk, Claim, LoopStats, Route
+from contracts import (
+    AnalystResult,
+    Chunk,
+    Claim,
+    LoopStats,
+    Route,
+)
 
 from .model import Message, Model, ScriptedModel, get_model
 from .prompts import DEFAULT_PROMPT_VERSION, PROMPT_VARIANTS, get_prompt_text
@@ -442,6 +448,43 @@ def _route_after_think(state: AnalystState) -> str:
     return "draft"
 
 
+def _question_directs_to_statute(question: str) -> str | None:
+    """Return the doc of the statute a question explicitly asks about, or None.
+
+    The distinction that matters for the drift check below:
+
+    * "Under the Payment of Gratuity Act, 1972, when is gratuity due?" --
+      the question *directs* the answer to 1972. An answer that cites only
+      the 2020 Code is answering a different question.
+    * "How does the current gratuity rule differ from what the 1972 Act
+      required?" -- 1972 is a reference point, not the subject. Answering
+      about current law is correct even without citing 1972.
+
+    Only the first framing fires. The patterns below are deliberately narrow:
+    a question must *open* with a directing phrase, or open with
+    "what does the X say". Comparison, reference, and background framings
+    pass through and are judged by the verifier on their citations alone.
+    """
+    lowered = question.strip().lower()
+    if not lowered:
+        return None
+
+    directs = bool(
+        re.match(r"^(?:under|according to|as per|per|in)\s+(?:the\s+)?", lowered)
+        or re.match(r"^what\s+(?:does|do|did)\s+(?:the\s+)?", lowered)
+    )
+    if not directs:
+        return None
+
+    if "1972" in question or "payment of gratuity act" in lowered:
+        return "pga1972"
+    if "2020" in question or "code on social security" in lowered:
+        return "css2020"
+    if "posh" in lowered or "sexual harassment" in lowered:
+        return "posh"
+    return None
+
+
 def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
     """Assemble the hand-off from whatever the loop produced."""
     elapsed_ms = int((time.perf_counter() - state["started_ms"]) * 1000)
@@ -476,6 +519,51 @@ def draft(state: AnalystState, *, correlation_id: str) -> dict[str, Any]:
             claims = [Claim(text=answer, citations=sorted(set(cited)))]
     else:
         claims = []
+
+    question = ""
+    if state.get("messages"):
+        question = state["messages"][0].get("content") or ""
+    if not question:
+        question = (state.get("request") or {}).get("question") or ""
+
+    question_directs = _question_directs_to_statute(question)
+
+    # Statute drift check.
+    #
+    # Fires only when the question explicitly directs the answer to a named
+    # statute ("Under the 1972 Act, ...") and the answer cites only a different
+    # statute. The failure mode this catches was observed live: the question
+    # asked about the repealed 1972 Act and the analyst answered about CSS 2020
+    # s.56 (payment timelines). Every claim was accurately supported by its
+    # cited passage -- the verifier's support check passed -- but the answer
+    # addressed a different question, and the caller saw "verified" on an
+    # answer that did not answer what was asked.
+    #
+    # The verifier cannot catch this class: each claim *is* supported. The
+    # check belongs here because the analyst is the one that knows what
+    # question it was asked.
+    #
+    # Deliberately does not fire for comparison framings (rep-mixed-citations
+    # asks how current law differs from 1972; answering from 2020 is correct).
+    # The doc cited must include the one the question directed attention to,
+    # not every statute the question mentions.
+    if answer and question_directs:
+        cited_docs = {
+            chunks[cid].doc
+            for claim in claims
+            for cid in claim.citations
+            if cid in chunks
+        }
+        if question_directs not in cited_docs:
+            logger.warning(
+                "analyst draft: statute drift -- question directs to %r, "
+                "answer cites %s",
+                question_directs, sorted(cited_docs),
+            )
+            stop_reason = "statute_drift"
+            route = Route.LEGAL_COUNSEL
+            answer = ""
+            claims = []
 
     result = AnalystResult(
         route=route,

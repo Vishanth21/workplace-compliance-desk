@@ -29,11 +29,14 @@ provider adapter does not need a translation layer for its own message type.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import httpx
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -263,17 +266,108 @@ def _patch_gemini_thought_signatures(body: dict[str, Any], base_url: str) -> Non
             )
 
 
+#: finish_reason values that mean "the provider refused to produce content for
+#: safety reasons". Treated as an empty escalation rather than a provider error,
+#: so a user who asks a triggering question gets routed to counsel rather than
+#: seeing a raw ``model_error``. `finish_reason: "error"` is deliberately *not*
+#: in this set -- it is a provider failure, not a content refusal, and should
+#: raise so the breaker and the escalation reason reflect that.
+_SAFETY_FINISH_REASONS = frozenset(
+    {"SAFETY", "CONTENT_FILTER", "OTHER", "content_filter", "safeguard"}
+)
+
+#: Step-shaped reply returned when a model response is blocked by safety
+#: filters. Validates as ``Step`` with action=answer and no citations, which
+#: means the analyst loop terminates normally and the verifier's stage-1
+#: ``no citations`` gate escalates to legal counsel.
+_SAFETY_BLOCK_REPLY = json.dumps(
+    {
+        "action": "answer",
+        "answer": "I cannot answer this question due to safety guidelines.",
+        "citations": [],
+        "claims": [],
+    },
+    separators=(",", ":"),
+)
+
+
+def _extract_content(payload: dict[str, Any], url: str, response: Any) -> str:
+    """Pull the assistant text out of an OpenAI-compatible reply.
+
+    Five paths lead to ``content`` being absent in a valid HTTP 200:
+
+    * The model refuses JSON mode (``finish_reason: "error"``): provider bug,
+      raise.
+    * Reasoning models (deepseek, some Claude variants) put the entire analysis
+      in ``reasoning_content`` and leave ``content`` empty: fall back.
+    * Some models return a refusal string in ``message.refusal``: fall back.
+    * Content filters fire (``finish_reason: "SAFETY"``, ``"content_filter"``,
+      ``"safeguard"``, ``"OTHER"``): return a Step-shaped escalation so the
+      analyst loop terminates cleanly.
+    * Anything else: raise with ``finish_reason`` and the first 300 bytes of
+      the body, so the operator sees what came back.
+
+    The safety path was added after observing ``cohere/north-mini-code:free``
+    and ``google/gemma-4-26b-a4b-it:free`` return 200 with ``content: null``
+    and ``finish_reason: "error"`` in production. That specific combination
+    is treated as a provider error; the safety set is narrower.
+    """
+    try:
+        choice = payload["choices"][0]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ModelError(
+            f"model endpoint {url} returned an unexpected body: "
+            f"{response.text[:300]}"
+        ) from exc
+
+    message = choice.get("message") or {}
+    content = message.get("content")
+    if content is None:
+        # Some reasoning models put the entire answer here.
+        content = message.get("reasoning_content")
+    if content is None:
+        # Some models return a refusal field instead of content.
+        content = message.get("refusal")
+    if content is not None:
+        return content
+
+    finish = choice.get("finish_reason")
+
+    # Gracefully handle safety blocks and content filters as empty escalations.
+    # Returning a Step-shaped payload lets the analyst loop terminate normally
+    # (route=ANSWER, no citations) and the verifier's stage-1 gate escalates.
+    # A Verdict-shaped caller will fail to parse this and fail closed in the
+    # verifier's exception branch -- also correct.
+    if finish in _SAFETY_FINISH_REASONS:
+        logger.warning(
+            "Model response blocked by safety filter (finish_reason=%s); "
+            "returning empty escalation",
+            finish,
+        )
+        return _SAFETY_BLOCK_REPLY
+
+    raise ModelError(
+        f"model endpoint {url} returned HTTP 200 with message.content=null. "
+        f"finish_reason={finish!r}. "
+        f"The model likely does not support JSON mode "
+        f"(response_format={{'type': 'json_object'}}) "
+        f"or refused to produce a structured reply. "
+        f"Body: {response.text[:300]}"
+    )
+
+
 class OpenAIModel:
     """Talks to any OpenAI-compatible ``/chat/completions`` endpoint.
 
     Covers OpenAI itself, Azure-compatible gateways, Gemini's OpenAI-compat
-    endpoint, and local inference servers (vLLM, llama.cpp, LM Studio). Nothing
-    in the class is specific to one vendor: the base URL is configuration.
+    endpoint, OpenRouter, and local inference servers (vLLM, llama.cpp, LM
+    Studio). Nothing in the class is specific to one vendor: the base URL is
+    configuration.
 
     Configuration, read at call time so a process can be reconfigured without
     a rebuild:
 
-    * ``LLM_BASE_URL``   -- e.g. ``https://api.example.com/v1``
+    * ``LLM_BASE_URL``   -- e.g. ``https://openrouter.ai/api/v1``
     * ``LLM_API_KEY``    -- falls back to ``OPENAI_API_KEY``
     * ``LLM_MODEL``      -- the model name the endpoint expects
     * ``LLM_TIMEOUT_S``  -- per-request timeout, default 60
@@ -302,7 +396,7 @@ class OpenAIModel:
         if not self.base_url:
             raise ModelError(
                 "LLM_PROVIDER=openai needs LLM_BASE_URL, e.g. "
-                "https://api.example.com/v1"
+                "https://openrouter.ai/api/v1"
             )
         if not self.model:
             raise ModelError(
@@ -374,12 +468,13 @@ class OpenAIModel:
 
         try:
             payload = response.json()
-            content = payload["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, ValueError) as exc:
+        except ValueError as exc:
             raise ModelError(
                 f"model endpoint {url} returned an unexpected body: "
                 f"{response.text[:300]}"
             ) from exc
+
+        content = _extract_content(payload, url, response)
 
         if response_schema is None:
             return content

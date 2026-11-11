@@ -2,9 +2,13 @@
 
 What this measures -- and what it does not
 ------------------------------------------
-The ingested corpus is **eight chunks**: section 53 of the Code on Social
-Security, 2020 (the main clause plus six provisos) and section 4 of the
-repealed Payment of Gratuity Act, 1972. Everything below lives inside that.
+The ingested corpus ships either as **eight hand-written chunks** (the
+fallback in ``index/retrieve.py``: section 53 of the Code on Social Security,
+2020 plus section 4 of the repealed 1972 Act) or as **586 built chunks**
+(470 from the Code, 72 from POSH, 76 from the 1972 Act). Which one is live is
+reported by ``/metrics`` as ``compliance_index_chunks``. The scripted unit
+tests below run against whatever corpus the process can reach; they do not
+depend on which.
 
 So this is a **routing and grounding benchmark**, not a legal-accuracy
 benchmark. It answers: given a question, does the agent reach the right
@@ -307,25 +311,35 @@ FLAGSHIP: list[Scenario] = [
 # ---------------------------------------------------------------------------
 # Group 3 -- outside the corpus, must escalate (4)
 # ---------------------------------------------------------------------------
-# These are the honest escalations. Nothing in the eight chunks answers them,
-# so the only correct behaviour is legal-counsel-review with no citations.
-# A model that invents a citation here is the failure the Verifier exists for.
+# These are the honest escalations. Nothing in the three corpus documents
+# (css2020, posh, pga1972) answers them, so the only correct behaviour is
+# legal-counsel-review with no citations. A model that invents a citation
+# here is the failure the Verifier exists for.
+#
+# The old ``esc-posh`` case asserted "POSH is not in the corpus" -- true on
+# the 8-chunk fallback, stale once POSH entered the 586-chunk build. It is
+# replaced by a Factories Act question, which is genuinely absent from all
+# three documents and stays absent regardless of build.
 
 ESCALATE: list[Scenario] = [
     Scenario(
-        id="esc-posh",
+        id="esc-factories-act",
         question=(
-            "What internal committee must we constitute for workplace sexual "
-            "harassment complaints?"
+            "What is the maximum number of working hours per day for a "
+            "factory worker under the Factories Act, 1948?"
         ),
         script=[
-            tool("corpus_search", query="internal committee sexual harassment"),
+            tool("corpus_search", query="maximum working hours factory worker"),
             answer(""),  # searched, found nothing, declines to answer
         ],
         expected_route=Route.LEGAL_COUNSEL,
         rationale=(
-            "POSH is not in the corpus. Searching returns nothing, and the "
-            "agent must escalate rather than answer from general knowledge."
+            "The Factories Act, 1948 is not one of the three corpus documents "
+            "(css2020, posh, pga1972). Searching returns only gratuity and "
+            "POSH chunks -- unrelated to the question. The agent must escalate "
+            "rather than answer from general knowledge. Replaces the old "
+            "esc-posh case, whose property ('POSH is not in the corpus') "
+            "became false when POSH entered the 586-chunk build."
         ),
     ),
     Scenario(
@@ -392,7 +406,10 @@ REPEALED: list[Scenario] = [
             "The analyst legitimately retrieves and cites the repealed "
             "provision when the question names it. The Verifier -- not the "
             "Analyst -- decides what to do with that, which is why this case "
-            "also asserts a failed verification."
+            "also asserts a failed verification. The draft-time repair in "
+            "``_repair_repealed_only_claims`` deliberately does not substitute "
+            "in-force citations here, because the question directs the answer "
+            "to the repealed statute; escalation is correct."
         ),
         expect_verified=False,
     ),
@@ -416,7 +433,9 @@ REPEALED: list[Scenario] = [
         forbidden_citations=frozenset({PGA_S4}),
         rationale=(
             "A comparative question where the answer must be grounded in the "
-            "law in force. Citing the repealed Act here would be the error."
+            "law in force. Citing the repealed Act here would be the error. "
+            "If the analyst cited only the repealed chunk, the draft-time "
+            "repair would substitute the in-force chunks it retrieved."
         ),
         expect_verified=True,
     ),

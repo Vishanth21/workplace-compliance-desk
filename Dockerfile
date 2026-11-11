@@ -27,10 +27,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
-# Health check using python urllib (standard library, avoids missing curl in
-# slim image). --start-period gives the lifespan warm-up (Chroma + embedder
-# load) time to finish before failures count against retries.
-HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=30s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

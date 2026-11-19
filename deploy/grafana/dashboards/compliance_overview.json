@@ -22,7 +22,7 @@
     },
     {
       "id": 2,
-      "title": "p95 E2E Latency (seconds) — SLO ≤ 2.5s",
+      "title": "p95 E2E Latency (seconds) — SLO ≤ 20s",
       "type": "stat",
       "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
       "targets": [

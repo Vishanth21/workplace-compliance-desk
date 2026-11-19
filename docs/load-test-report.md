@@ -4,15 +4,13 @@
 
 | Metric | Target |
 |--------|--------|
-| End-to-end p95 latency (POST /runs → succeeded poll) | **≤ 2,500 ms** |
+| End-to-end p95 latency (POST /runs → succeeded poll) | **≤ 20,000 ms** |
 | Measurement method | Locust headless, e2e custom event |
 | Stub server delay | 150 ms simulated (PIPELINE_DELAY_SECONDS=0.15) |
 
-> **Justification:** A 2,500 ms p95 budget is generous relative to the
-> stub's 150 ms model latency + 50 ms poll interval overhead + FastAPI
-> processing time (~5–10 ms).  Under real LLM latencies (1–3 s),
-> the budget would be raised to 8–10 s; the measurement methodology
-> and saturation analysis remain identical.
+> **Justification:** The 20,000 ms p95 budget allows for live LLM inference
+> latency while retaining an end-to-end completion target. The load-test
+> measurement methodology and saturation analysis remain identical.
 
 ## 2. Test Configuration
 

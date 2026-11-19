@@ -114,7 +114,9 @@ An unrecognised value raises at startup.
 | Value | Behaviour |
 |---|---|
 | `scripted` (default) | Replays a JSON list from `LLM_SCRIPTED_RESPONSES`. Used by tests. |
-| `openai` | Any OpenAI-compatible chat-completions endpoint. Requires `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`. |
+| `openai` | Any OpenAI-compatible chat-completions endpoint. Requires a base URL and model, configured globally or per agent. |
+
+Set `ANALYST_LLM_BASE_URL`, `ANALYST_LLM_MODEL`, and `ANALYST_LLM_API_KEY` to override the analyst's settings. Use the matching `VERIFIER_LLM_*` variables for the verifier. Each unset value falls back to its shared `LLM_*` setting. Base URLs should end at the API root, such as `https://api.groq.com/openai/v1`; the client appends `/chat/completions`. A full URL ending in `/chat/completions` is also accepted. `LLM_PROVIDER=openai` selects the OpenAI-compatible adapter for both.
 
 Any other provider raises `ModelError`. See [ADR 0001](docs/adr/0001-model-provider-seam.md) and [ADR 0002](docs/adr/0002-openai-compatible-model-adapter.md).
 
@@ -142,6 +144,12 @@ LLM_PROVIDER=openai \
 LLM_BASE_URL=https://api.example.com/v1 \
 LLM_MODEL=your-model-name \
 LLM_API_KEY=sk-... \
+ANALYST_LLM_BASE_URL=https://openrouter.ai/api/v1 \
+ANALYST_LLM_MODEL=nvidia/nemotron-3.5-1 \
+ANALYST_LLM_API_KEY=sk-... \
+VERIFIER_LLM_BASE_URL=https://openrouter.ai/api/v1 \
+VERIFIER_LLM_MODEL=qwen/qwen3.5 \
+VERIFIER_LLM_API_KEY=sk-... \
 ANALYST_MODE=real \
 PROMPT_VERSION=analyst-2 \
 uv run uvicorn app.main:app --port 8000
@@ -176,7 +184,7 @@ uv run pytest tests/test_openai_adapter.py -k live
 - **Trace reconstruction** (`app/pipeline.py` → `RunTrace`) — per-step action, tool, arguments, passage ids, latency, token and cost estimates, attached to the run and served by `/runs/{id}/trace`.
 - **Eval set** (`tests/eval_scenarios.py`, `tests/test_eval.py`) — 17 scenarios through the loop and the deterministic verifier, plus 3 injection cases.
 - **Prompt comparison** (`eval/compare_prompts.py`, [report](docs/prompt-comparison.md)) — both variants scored on the same 17 scenarios. Measured on this checkout the two variants are at parity: 100% routing, 100% citation grounding, 66.7% flagship-proviso retrieval, 2.12 average steps. Prompt version is recorded on every `RunTrace`; the instruction-level difference between the variants is not observable under the scripted model.
-- **Load testing** (`load_tests/run_load_test.py`, Locust) — 2/5/10/20 users, [report](docs/load-test-report.md). In the published run the p95 SLO ≤ 2,500 ms holds to 10 users and 20 users saturates at 4.1 s. The report labels these figures *pre-computed* against the stub, not re-measured on this checkout; see limitation 5.
+- **Load testing** (`load_tests/run_load_test.py`, Locust) — 2/5/10/20 users, [report](docs/load-test-report.md). In the published run p95 holds to 10 users and 20 users saturates at 4.1 s. These figures were measured against the former 2,500 ms SLO and are *pre-computed* against the stub, not re-measured on this checkout; see limitation 5.
 - **Web client** (`app/static/index.html`) — submit, poll, render route/answer/citations/escalation.
 - **Corpus pipeline and retrieval** (`index/build.py`, `index/chunker.py`, `index/embedder.py`, `index/retrieve.py`) — 618 statutory chunks (css2020 470, posh 72, pga1972 76) embedded with `all-MiniLM-L6-v2` into a persistent Chroma collection, fingerprinted by a corpus hash so a rebuild is idempotent. `corpus_search` and `lookup_clause` query Chroma at runtime; `/metrics` exposes `compliance_index_chunks` and `compliance_index_freshness_seconds`.
 - **Operations docs** — [runbook](docs/runbook.md) for upstream outage and circuit-breaker recovery, [incident log](docs/incident-log.md), [ADRs](docs/adr/).

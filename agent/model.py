@@ -388,6 +388,11 @@ class OpenAIModel:
         timeout_s: float | None = None,
     ) -> None:
         self.base_url = (base_url or _env("LLM_BASE_URL") or "").rstrip("/")
+        # Accept either the API root (/v1) or the full endpoint URL. Configs
+        # commonly copy the latter from provider examples; appending the path
+        # again would otherwise produce .../chat/completions/chat/completions.
+        if self.base_url.endswith("/chat/completions"):
+            self.base_url = self.base_url[: -len("/chat/completions")].rstrip("/")
         self.api_key = api_key or _env("LLM_API_KEY") or _env("OPENAI_API_KEY")
         self.model = model or _env("LLM_MODEL")
         raw_timeout = timeout_s if timeout_s is not None else _env("LLM_TIMEOUT_S")
@@ -504,7 +509,12 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value or None
 
 
-def get_model(provider: str | None = None, *, wrap_resilient: bool = True) -> Model:
+def get_model(
+    provider: str | None = None,
+    *,
+    role: str | None = None,
+    wrap_resilient: bool = True,
+) -> Model:
     """Return the configured model.
 
     Reads ``LLM_PROVIDER`` (default ``scripted``) unless ``provider`` is given.
@@ -519,6 +529,17 @@ def get_model(provider: str | None = None, *, wrap_resilient: bool = True) -> Mo
     """
     chosen = (provider or _env("LLM_PROVIDER") or "scripted").lower()
 
+    # Agent-specific settings override the shared defaults. Build a scoped
+    # environment for OpenAIModel so its public constructor remains backwards
+    # compatible for callers that instantiate it directly.
+    overrides: dict[str, str] = {}
+    if role:
+        prefix = f"{role.upper()}_LLM_"
+        for key in ("BASE_URL", "API_KEY", "MODEL", "TIMEOUT_S"):
+            value = _env(prefix + key)
+            if value:
+                overrides["LLM_" + key] = value
+
     model: Model
     if chosen == "scripted":
         # An empty script is a valid starting point for wiring; any real call
@@ -527,7 +548,16 @@ def get_model(provider: str | None = None, *, wrap_resilient: bool = True) -> Mo
         responses = json.loads(raw) if raw else []
         model = ScriptedModel(responses)
     elif chosen == "openai":
-        model = OpenAIModel()
+        model = OpenAIModel(
+            base_url=overrides.get("LLM_BASE_URL"),
+            api_key=overrides.get("LLM_API_KEY"),
+            model=overrides.get("LLM_MODEL"),
+            timeout_s=(
+                float(overrides["LLM_TIMEOUT_S"])
+                if "LLM_TIMEOUT_S" in overrides
+                else None
+            ),
+        )
     else:
         raise ModelError(
             f"unknown LLM_PROVIDER {chosen!r}. Known providers: "

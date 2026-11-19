@@ -3,7 +3,7 @@
 Measures the complete run lifecycle from POST /runs submission through polling
 until status == 'succeeded', emitting a custom event for end-to-end latency.
 
-Declared SLO: p95 <= 2,500 ms at sustained load.
+Declared SLO: p95 <= 20,000 ms at sustained load.
 
 Usage (headless, against local stub server):
     locust -f load_tests/locustfile.py --headless \\

@@ -47,7 +47,9 @@ def _build_analyst() -> AnalystProtocol:
     # "an unknown mode". ``os.getenv(...) or "stub"`` would not catch "   ".
     mode = (os.getenv("ANALYST_MODE") or "").strip().lower() or "stub"
     if mode == "real":
-        return RealAnalyst()
+        from agent.model import get_model
+
+        return RealAnalyst(model=get_model(role="analyst"))
     if mode != "stub":
         raise ValueError(
             f"unknown ANALYST_MODE {mode!r}; expected 'stub' or 'real'"
@@ -86,7 +88,7 @@ def _build_verifier() -> VerifierProtocol:
 
     from agent.model import get_model
 
-    return Verifier(model=get_model())
+    return Verifier(model=get_model(role="verifier"))
 
 
 # Default agent instances.

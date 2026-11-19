@@ -36,7 +36,7 @@ RUN_TIME_S = 30
 HOST = "http://localhost:8000"
 
 # Declared SLO
-SLO_P95_MS = 2500.0
+SLO_P95_MS = 20000.0
 
 
 class Result(NamedTuple):
